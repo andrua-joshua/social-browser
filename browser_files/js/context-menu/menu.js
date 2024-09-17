@@ -367,7 +367,7 @@ function get_url_menu_list(url) {
           url: url,
           referrer: document.location.href,
           show: true,
-          iframe : true,
+          iframe: true,
           trusted: true,
           center: true,
         });
@@ -467,11 +467,13 @@ function get_url_menu_list(url) {
   arr.push({
     label: ' in ( Ghost window )',
     click() {
+      let ghost = 'x-ghost_' + (new Date().getTime().toString() + Math.random().toString()).replace('.', '');
+
       SOCIALBROWSER.ipc('[open new popup]', {
         url: url,
         referrer: document.location.href,
-        partition: 'x-ghost_' + new Date().getTime() + Math.random(),
-        user_name: 'x-ghost_' + new Date().getTime() + Math.random(),
+        partition: ghost,
+        user_name: ghost,
         show: true,
         iframe: true,
         iframe: true,
@@ -509,10 +511,10 @@ function add_a_menu(node) {
   }
 
   if (node.nodeName === 'A' && node.getAttribute('href') && !node.getAttribute('href').startsWith('#')) {
-    let u = node.getAttribute('href');
-    u = SOCIALBROWSER.handleURL(u);
+    let href = node.getAttribute('href');
+    let u = SOCIALBROWSER.handleURL(href);
 
-    u_string = ' [ ' + u.substring(0, 70) + ' ] ';
+    let u_string = ' [ ' + u.substring(0, 70) + ' ] ';
     if (u.like('mailto:*')) {
       let mail = u.replace('mailto:', '');
       SOCIALBROWSER.menuList.push({
@@ -563,12 +565,11 @@ function add_a_menu(node) {
         submenu: arr,
       });
     }
+    SOCIALBROWSER.menuList.push({
+      type: 'separator',
+    });
 
     if (u.like('https://www.youtube.com/watch*')) {
-      SOCIALBROWSER.menuList.push({
-        type: 'separator',
-      });
-
       SOCIALBROWSER.menuList.push({
         label: 'Play video ',
         click() {
@@ -588,6 +589,7 @@ function add_a_menu(node) {
             url: u.replace('youtube', 'ssyoutube'),
             partition: SOCIALBROWSER.partition,
             referrer: document.location.href,
+            allowPopup : true,
             show: true,
             center: true,
           });
@@ -720,7 +722,21 @@ function get_options_menu(node) {
   arr.push({
     type: 'separator',
   });
-
+  arr.push({
+    label: 'Copy Profile ID',
+    click() {
+      SOCIALBROWSER.copy(SOCIALBROWSER.session.name);
+    },
+  });
+  arr.push({
+    label: 'Copy Profile Name',
+    click() {
+      SOCIALBROWSER.copy(SOCIALBROWSER.session.display);
+    },
+  });
+  arr.push({
+    type: 'separator',
+  });
   arr.push({
     label: 'Save page',
     accelerator: 'CommandOrControl+s',
@@ -818,9 +834,6 @@ function get_options_menu(node) {
     type: 'separator',
   });
 
-  arr.push({
-    type: 'separator',
-  });
   arr.push({
     label: 'Clear Site Cache',
     accelerator: 'CommandOrControl+F5',
@@ -1074,9 +1087,11 @@ function get_options_menu(node) {
     arr3.push({
       label: 'Open in ( Ghost window )',
       click() {
+        let ghost = 'x-ghost_' + (new Date().getTime().toString() + Math.random().toString()).replace('.', '');
         SOCIALBROWSER.ipc('[open new popup]', {
           alwaysOnTop: true,
-          partition: 'x-ghost_' + Date.now(),
+          partition: ghost,
+          user_name: ghost,
           url: f.src,
           referrer: document.location.href,
           show: true,
@@ -1256,6 +1271,7 @@ function get_custom_menu() {
           referrer: document.location.href,
           url: document.location.href.replace('youtube', 'ssyoutube'),
           show: true,
+          allowPopup : true,
           center: true,
         });
       },
@@ -1274,7 +1290,7 @@ function createDevelopmentMenu() {
   let arr = [];
 
   arr.push({
-    label: ' Close Social Browser',
+    label: 'Exist Social Browser',
     click() {
       SOCIALBROWSER.ws({ type: '[close]' });
     },
@@ -1289,217 +1305,8 @@ function createDevelopmentMenu() {
   }
 }
 
-function url_to_social(url, social_arr, title) {
-  if (SOCIALBROWSER.menuSocialOFF) {
-    return;
-  }
-  social_arr.push({
-    label: ` Open  [ ${title} ] in 5 new window [Audio Muted]`,
-    click() {
-      for (let index = 0; index < 5; index++) {
-        setTimeout(() => {
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: SOCIALBROWSER.partition,
-            url: url,
-            referrer: document.location.href,
-            allowAudio: false,
-            show: true,
-            center: true,
-          });
-        }, 1000 * 2 * index);
-      }
-    },
-  });
-  social_arr.push({
-    label: ` Open [ ${title} ] in Many window [ All Profiles (${SOCIALBROWSER.var.session_list.length}) ] [Audio Muted]`,
-    click() {
-      for (let index = 0; index < SOCIALBROWSER.var.session_list.length; index++) {
-        setTimeout(() => {
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: SOCIALBROWSER.var.session_list[index].name,
-            user_name: SOCIALBROWSER.var.session_list[index].display,
-            url: url,
-            referrer: document.location.href,
-            allowAudio: false,
-            show: true,
-            center: true,
-          });
-        }, 1000 * index * 2);
-      }
-    },
-  });
-  social_arr.push({
-    label: ` Open [ ${title} ] in Many window [ All User Agents (${SOCIALBROWSER.var.userAgentList.length}) ] [Audio Muted]`,
-    click() {
-      for (let index = 0; index < SOCIALBROWSER.var.userAgentList.length; index++) {
-        setTimeout(() => {
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: SOCIALBROWSER.partition,
-            userAgentURL: SOCIALBROWSER.var.userAgentList[index].url,
-            url: url,
-            referrer: document.location.href,
-            allowAudio: false,
-            show: true,
-            center: true,
-          });
-        }, 1000 * index * 2);
-      }
-    },
-  });
-  social_arr.push({
-    label: ` Open [ ${title} ] in Many window [ All User Agents (${SOCIALBROWSER.var.userAgentList.length}) ] [Audio Muted] + Ghosts Profiles `,
-    click() {
-      for (let index = 0; index < SOCIALBROWSER.var.userAgentList.length; index++) {
-        setTimeout(() => {
-          let partition2 = 'x-ghost_' + Date.now() + '_' + Math.random();
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: partition2,
-            userAgentURL: SOCIALBROWSER.var.userAgentList[index].url,
-            url: url,
-            referrer: document.location.href,
-            allowAudio: false,
-            show: true,
-            iframe: true,
-            center: true,
-          });
-        }, 1000 * index * 1);
-      }
-    },
-  });
-
-  social_arr.push({
-    label: ` Open [ ${title} ] in Many window [ Proxy List ( 10 ) ] [Audio Muted] + Ghosts Profiles `,
-    click() {
-      if (!SOCIALBROWSER.proxyIndex) {
-        SOCIALBROWSER.proxyIndex = 0;
-      }
-      SOCIALBROWSER.proxy_list = SOCIALBROWSER.var.proxy_list.slice(SOCIALBROWSER.proxyIndex, 10 + SOCIALBROWSER.proxyIndex);
-      SOCIALBROWSER.proxyIndex += 10;
-      for (let index = 0; index < SOCIALBROWSER.proxy_list.length; index++) {
-        setTimeout(() => {
-          let partition2 = 'x-ghost_' + Date.now();
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: partition2,
-            userAgentURL: SOCIALBROWSER.userAgent,
-            url: url,
-            referrer: document.location.href,
-            allowAudio: false,
-            show: true,
-            iframe: true,
-            proxy: SOCIALBROWSER.var.proxy_list[index],
-            center: true,
-          });
-        }, 1000 * index * 2);
-      }
-    },
-  });
-  return social_arr;
-}
-
-function get_social_menu(node, social_arr) {
-  if (SOCIALBROWSER.menuSocialOFF) {
-    return;
-  }
-
-  social_arr = social_arr || [];
-
-  if (!node) {
-    if (social_arr.length > 0) {
-      social_arr.push({
-        type: 'separator',
-      });
-    }
-    social_arr = url_to_social(document.location.href, social_arr, 'Current Page');
-    if (social_arr.length > 0) {
-      SOCIALBROWSER.menuList.push({
-        label: ' Social Tools ',
-        type: 'submenu',
-        submenu: social_arr,
-      });
-
-      SOCIALBROWSER.menuList.push({
-        type: 'separator',
-      });
-    }
-    return;
-  }
-
-  if (SOCIALBROWSER.var.blocking.social.allow_menu) {
-    if (SOCIALBROWSER.var.blocking.social.allow_alexa && social_arr.length === 0) {
-      social_arr.push({
-        label: ` ${document.location.host} ( Alexa Rank )`,
-        click() {
-          SOCIALBROWSER.ipc('[open new popup]', {
-            width: 500,
-            height: 500,
-            url: `https://www.alexa.com/minisiteinfo/${document.location.origin}?offset=5&version=alxg_20100607`,
-            referrer: document.location.href,
-            show: true,
-            center: true,
-          });
-        },
-      });
-    }
-
-    if (node.nodeName === 'A' && node.getAttribute('href') && !node.getAttribute('href').like('*#*|*mailto*')) {
-      let u = node.getAttribute('href');
-
-      u = SOCIALBROWSER.handleURL(u);
-
-      social_arr.push({
-        type: 'separator',
-      });
-      social_arr = url_to_social(u, social_arr, 'Link');
-
-      social_arr.push({
-        type: 'separator',
-      });
-      get_social_menu(null, social_arr);
-    } else if (node.nodeName !== 'A') {
-      get_social_menu(node.parentNode, social_arr);
-    }
-  }
-}
-
 function createMenuList(node) {
   if (SOCIALBROWSER.customSetting.windowType !== 'main') {
-    if (SOCIALBROWSER.selectedText.length > 0) {
-      let stext = SOCIALBROWSER.selectedText.substring(0, 70);
-      SOCIALBROWSER.menuList.push({
-        label: `Copy [ ${stext} ] `,
-        click() {
-          SOCIALBROWSER.copy(SOCIALBROWSER.selectedText);
-        },
-      });
-
-      SOCIALBROWSER.menuList.push({
-        label: `Translate [ ${stext} ] `,
-        click() {
-          SOCIALBROWSER.ipc('[open new popup]', {
-            partition: SOCIALBROWSER.partition,
-            show: true,
-            center: true,
-            url: 'https://translate.google.com/?num=100&newwindow=1&um=1&ie=UTF-8&hl=en&client=tw-ob#auto/ar/' + encodeURIComponent(SOCIALBROWSER.selectedText),
-          });
-        },
-      });
-
-      SOCIALBROWSER.menuList.push({
-        label: `Search  [ ${stext} ] `,
-        click() {
-          SOCIALBROWSER.ipc('[open new tab]', {
-            referrer: document.location.href,
-            url: 'https://www.google.com/search?q=' + encodeURIComponent(SOCIALBROWSER.selectedText),
-            windowID: SOCIALBROWSER.remote.getCurrentWindow().id,
-          });
-        },
-      });
-
-      SOCIALBROWSER.menuList.push({
-        type: 'separator',
-      });
-    }
-
     add_input_menu(node);
     add_a_menu(node);
 
@@ -1512,7 +1319,39 @@ function createMenuList(node) {
       });
 
       SOCIALBROWSER.menuList.push({ type: 'separator' });
+    } else {
+      if (SOCIALBROWSER.memoryText) {
+        let stext = SOCIALBROWSER.memoryText.substring(0, 70);
+
+        SOCIALBROWSER.menuList.push({
+          label: `Translate [ ${stext} ] `,
+          click() {
+            SOCIALBROWSER.ipc('[open new popup]', {
+              partition: SOCIALBROWSER.partition,
+              show: true,
+              center: true,
+              url: 'https://translate.google.com/?num=100&newwindow=1&um=1&ie=UTF-8&hl=en&client=tw-ob#auto/ar/' + encodeURIComponent(SOCIALBROWSER.memoryText),
+            });
+          },
+        });
+
+        SOCIALBROWSER.menuList.push({
+          label: `Search  [ ${stext} ] `,
+          click() {
+            SOCIALBROWSER.ipc('[open new tab]', {
+              referrer: document.location.href,
+              url: 'https://www.google.com/search?q=' + encodeURIComponent(SOCIALBROWSER.memoryText),
+              windowID: SOCIALBROWSER.remote.getCurrentWindow().id,
+            });
+          },
+        });
+
+        SOCIALBROWSER.menuList.push({
+          type: 'separator',
+        });
+      }
     }
+
     if (SOCIALBROWSER.selectedText && SOCIALBROWSER.isValidURL(SOCIALBROWSER.selectedText)) {
       let arr = get_url_menu_list(SOCIALBROWSER.selectedText);
       SOCIALBROWSER.menuList.push({
@@ -1522,16 +1361,52 @@ function createMenuList(node) {
       });
 
       SOCIALBROWSER.menuList.push({ type: 'separator' });
+    } else {
+      if (SOCIALBROWSER.selectedText) {
+        let stext = SOCIALBROWSER.selectedText.substring(0, 70);
+        SOCIALBROWSER.menuList.push({
+          label: `Copy [ ${stext} ] `,
+          click() {
+            SOCIALBROWSER.copy(SOCIALBROWSER.selectedText);
+          },
+        });
+
+        SOCIALBROWSER.menuList.push({
+          label: `Translate [ ${stext} ] `,
+          click() {
+            SOCIALBROWSER.ipc('[open new popup]', {
+              partition: SOCIALBROWSER.partition,
+              show: true,
+              center: true,
+              url: 'https://translate.google.com/?num=100&newwindow=1&um=1&ie=UTF-8&hl=en&client=tw-ob#auto/ar/' + encodeURIComponent(SOCIALBROWSER.selectedText),
+            });
+          },
+        });
+
+        SOCIALBROWSER.menuList.push({
+          label: `Search  [ ${stext} ] `,
+          click() {
+            SOCIALBROWSER.ipc('[open new tab]', {
+              referrer: document.location.href,
+              url: 'https://www.google.com/search?q=' + encodeURIComponent(SOCIALBROWSER.selectedText),
+              windowID: SOCIALBROWSER.remote.getCurrentWindow().id,
+            });
+          },
+        });
+
+        SOCIALBROWSER.menuList.push({
+          type: 'separator',
+        });
+      }
     }
 
     get_img_menu(node);
 
-    get_social_menu(node, null);
     SOCIALBROWSER.menu_list.forEach((m) => {
       SOCIALBROWSER.menuList.push(m);
     });
 
-    if (SOCIALBROWSER.var.blocking.open_list.length > 0) {
+    if (SOCIALBROWSER.var.blocking.open_list?.length > 0) {
       SOCIALBROWSER.var.blocking.open_list.forEach((o) => {
         if (o.enabled) {
           if (o.multi) {
@@ -1574,7 +1449,7 @@ function createMenuList(node) {
               url: SOCIALBROWSER.var.vip.server_url + v.url,
               referrer: document.location.href,
               show: true,
-              iframe : true,
+              iframe: true,
               trusted: true,
               center: true,
             });
@@ -1679,7 +1554,6 @@ function createMenuList(node) {
       let user_name = node.getAttribute('user_name');
       let userAgentURL = node.getAttribute('userAgentURL');
       let childProcessID = node.getAttribute('childProcessID');
-      let ghost = 'x-ghost_' + Math.random().toString().replace('.', '');
       SOCIALBROWSER.menuList.push({
         label: 'New tab',
         click() {
@@ -1729,12 +1603,14 @@ function createMenuList(node) {
       SOCIALBROWSER.menuList.push({
         label: 'New Ghost tab',
         click() {
+          let ghost = 'x-ghost_' + (new Date().getTime().toString() + Math.random().toString()).replace('.', '');
           SOCIALBROWSER.ipc('[open new tab]', { partition: ghost, iframe: true, user_name: ghost, userAgentURL: userAgentURL, main_window_id: SOCIALBROWSER.remote.getCurrentWindow().id });
         },
       });
       SOCIALBROWSER.menuList.push({
         label: 'Duplicate tab in Ghost tab',
         click() {
+          let ghost = 'x-ghost_' + (new Date().getTime().toString() + Math.random().toString()).replace('.', '');
           SOCIALBROWSER.ipc('[open new tab]', { url: url, partition: ghost, user_name: ghost, userAgentURL: userAgentURL, main_window_id: SOCIALBROWSER.remote.getCurrentWindow().id });
         },
       });
@@ -1760,6 +1636,7 @@ function createMenuList(node) {
       SOCIALBROWSER.menuList.push({
         label: 'Duplicate tab in Ghost window',
         click() {
+          let ghost = 'x-ghost_' + new Date().getTime() + Math.random();
           SOCIALBROWSER.ipc('[open new popup]', {
             childProcessID: childProcessID,
             show: true,
@@ -1835,10 +1712,12 @@ SOCIALBROWSER.contextmenu = function (e) {
     }
 
     try {
+      SOCIALBROWSER.currentWindow = SOCIALBROWSER.remote.getCurrentWindow();
+      SOCIALBROWSER.webContents = SOCIALBROWSER.currentWindow.webContents;
       SOCIALBROWSER.currentWindow.show();
     } catch (error) {
-      SOCIALBROWSER.currentWindow = SOCIALBROWSER.remote.getCurrentWindow();
-      SOCIALBROWSER.currentWindow.show();
+      console.log(error);
+      return;
     }
 
     e = e || { x: 0, y: 0 };
@@ -1870,7 +1749,13 @@ SOCIALBROWSER.contextmenu = function (e) {
         sublabel: m.sublabel,
         visible: m.visible,
         type: m.type,
-        submenu: m.submenu?.map((s) => ({ label: s.label, type: s.type, sublabel: s.sublabel, visible: s.visible })),
+        submenu: m.submenu?.map((m2) => ({
+          label: m2.label,
+          type: m2.type,
+          sublabel: m2.sublabel,
+          visible: m2.visible,
+          submenu: m2.submenu?.map((m3) => ({ label: m3.label, type: m3.type, sublabel: m3.sublabel, visible: m3.visible })),
+        })),
       })),
       windowID: SOCIALBROWSER.remote.getCurrentWindow().id,
     });
@@ -1883,7 +1768,16 @@ SOCIALBROWSER.on('context-menu', (e, data) => {
   SOCIALBROWSER.contextmenu(data);
 });
 SOCIALBROWSER.on('[run-menu]', (e, data) => {
-  if (typeof data.index !== 'undefined' && typeof data.index2 !== 'undefined') {
+  if (typeof data.index !== 'undefined' && typeof data.index2 !== 'undefined' && typeof data.index3 !== 'undefined') {
+    let m = SOCIALBROWSER.menuList[data.index];
+    if (m && m.submenu) {
+      let m2 = m.submenu[data.index2];
+      if (m2 && m2.submenu) {
+        let m3 = m2.submenu[data.index3];
+        m3.click();
+      }
+    }
+  } else if (typeof data.index !== 'undefined' && typeof data.index2 !== 'undefined') {
     let m = SOCIALBROWSER.menuList[data.index];
     if (m && m.submenu) {
       let m2 = m.submenu[data.index2];

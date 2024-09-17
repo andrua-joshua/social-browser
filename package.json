@@ -2,7 +2,7 @@
   "name": "social_browser",
   "productName": "Social Browser",
   "homepage": "https://social-browser.com",
-  "version": "2024.01.01",
+  "version": "2024.09.15",
   "description": "Browsing Any Site with Multi Users And without Ads",
   "author": {
     "name": "Social Developer",
@@ -21,7 +21,7 @@
     "ubuntu": "electron-builder -l --x64 --ia32",
     "mac": "electron-builder -m --x64",
     "postinstall": "electron-builder install-app-deps",
-    "start": "electron .  ",
+    "start": "electron --trace-warnings .  ",
     "reload": "electron-rebuild",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
@@ -74,7 +74,7 @@
     "nsis": {
       "guid": "sbrowser-0000-0000-0000-freesbrowser",
       "perMachine": true,
-      "artifactName": "${productName} Setup.${ext}",
+      "artifactName": "${productName} ${version} ${os} ${arch} Setup.${ext}",
       "uninstallDisplayName": "${productName}",
       "allowElevation": true,
       "createDesktopShortcut": "always",
@@ -110,12 +110,12 @@
     }
   },
   "dependencies": {
-    "@electron/remote": "^2.1.1",
-    "isite": "^2023.12.22",
-    "node-fetch": "^2.6.6"
+    "@electron/remote": "^2.1.2",
+    "isite": "^2024.8.16",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
-    "electron": "^28.2.0",
+    "electron": "^32.1.0",
     "electron-builder": "^24.4.0"
   }
 }

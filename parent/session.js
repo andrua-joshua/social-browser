@@ -95,27 +95,27 @@ module.exports = function (parent) {
           proxyRules: proxyRules,
           proxyBypassRules: proxy.ignore || '127.0.0.1',
         }).then(() => {
-          // parent.log('Proxy Set : ' + proxyRules);
+          parent.log('Proxy Set : ' + proxyRules);
         });
       } else if (proxy.mode == 'pac_script' && proxy.pacScript) {
         ss.setProxy({
           mode: proxy.mode,
           pacScript: proxy.pacScript,
         }).then(() => {
-          // parent.log('Proxy Set : ' + proxy.mode);
+          parent.log('Proxy Set : ' + proxy.mode);
         });
       } else {
         ss.setProxy({
           mode: proxy.mode,
         }).then(() => {
-          // parent.log('Proxy Set to default : ' + proxy.mode);
+          parent.log('Proxy Set to default : ' + proxy.mode);
         });
       }
     } else {
       ss.setProxy({
         mode: 'system',
       }).then(() => {
-        // parent.log('Default Proxy Set :system ');
+        parent.log('Default Proxy Set :system  ');
       });
     }
 
@@ -141,15 +141,7 @@ module.exports = function (parent) {
         return;
       }
 
-      // protect from know login info
-      if (!url.contains(source_url) && url.like('*favicon.ico*')) {
-        callback({
-          cancel: true,
-        });
-        return;
-      }
-
-      let end = parent.var.blocking.white_list.some((s) => s.url.length > 2 && (source_url.like(s.url) || url.like(s.url)));
+      let end = parent.var.blocking.white_list.some((s) => source_url.like(s.url) || url.like(s.url));
 
       if (end) {
         callback({
@@ -158,40 +150,18 @@ module.exports = function (parent) {
         return;
       }
 
-      if (parent.var.blocking.black_list) {
-        end = parent.var.blocking.black_list.some((s) => url.like(s.url));
-
-        if (end) {
+      if (!parent.isAllowURL(url)) {
+        if (url.like('*.js*|*/js*')) {
           callback({
             cancel: false,
-            redirectURL: `http://127.0.0.1:60080/block-site?url=${url}&msg=Site in Black List From Setting`,
+            redirectURL: 'browser://js/fake.js?' + url.split('?')[1],
           });
-
-          return;
-        }
-      }
-
-      if (parent.var.blocking.allow_safty_mode) {
-        end = parent.var.blocking.un_safe_list.some((s) => url.like(s.url));
-
-        if (end) {
-          callback({
-            cancel: false,
-            redirectURL: `http://127.0.0.1:60080/block-site?url=${url}&msg=Not Safe Site From Setting`,
-          });
-
-          return;
-        }
-      }
-
-      if (parent.var.blocking.core.block_ads) {
-        if (url.like(parent.var.$ad_string)) {
+        } else {
           callback({
             cancel: true,
           });
-
-          return;
         }
+        return;
       }
 
       // continue loading url
@@ -366,13 +336,7 @@ module.exports = function (parent) {
         }
       });
 
-      let is_white = false;
-      parent.var.blocking.white_list.forEach((w) => {
-        if (details.url.like(w.url)) {
-          is_white = true;
-        }
-      });
-
+      let is_white = parent.var.blocking.white_list.some((w) => details.url.like(w.url));
       if (is_white) {
         callback({
           cancel: false,

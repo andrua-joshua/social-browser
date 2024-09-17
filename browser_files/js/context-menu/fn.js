@@ -13,7 +13,111 @@ SOCIALBROWSER.on('message', (e, message) => {
   }
 });
 
+SOCIALBROWSER.scope = function (selector = '[ng-controller]') {
+  return angular.element(document.querySelector(selector)).scope();
+};
+
+SOCIALBROWSER.openExternal = function (link) {
+  return SOCIALBROWSER.ipc('[open-external]', { link: link });
+};
+SOCIALBROWSER.exec = function (cmd) {
+  return SOCIALBROWSER.ipc('[exec]', { cmd: cmd });
+};
+SOCIALBROWSER.exe = function (cmd, args = []) {
+  return SOCIALBROWSER.ipc('[exe]', { cmd: cmd, args: args });
+};
+SOCIALBROWSER.kill = function (name) {
+  return SOCIALBROWSER.ipc('[kill]', { name: name });
+};
+SOCIALBROWSER.requestCookie = function (obj = {}) {
+  obj.domain = obj.domain || document.location.hostname;
+  obj.partition = SOCIALBROWSER.partition;
+  return SOCIALBROWSER.ipc('request-cookie', obj);
+};
+SOCIALBROWSER.desktopCapturer = function (options = {}, callback) {
+  navigator.mediaDevices
+    .getDisplayMedia({
+      audio: false,
+      video: {
+        width: 1200,
+        height: 800,
+        frameRate: 30,
+      },
+    })
+    .then((stream) => {
+      callback(null, stream, video);
+      if ((video = options.video)) {
+        video.srcObject = stream;
+        video.onloadedmetadata = (e) => video.play();
+      }
+    })
+    .catch((err) => {
+      callback(err);
+    });
+};
+SOCIALBROWSER.addSession = function (session) {
+  if (typeof session == 'string') {
+    session = {
+      display: session,
+    };
+    session.name = 'persist:' + SOCIALBROWSER.md5(session.display);
+  }
+  if (!session.name && session.display) {
+    session.name = 'persist:' + SOCIALBROWSER.md5(session.display);
+  }
+
+  if (session.name && session.display) {
+    if (!session.name.like('persist*')) {
+      session.name = 'persist:' + session.name;
+    }
+    session.can_delete = true;
+    session.time = session.time || new Date().getTime();
+    if (!session.privacy) {
+      session.privacy = {
+        enable_virtual_pc: true,
+        vpc: SOCIALBROWSER.generateVPC(),
+      };
+    }
+    if (!session.defaultUserAgent) {
+      session.defaultUserAgent = SOCIALBROWSER.var.userAgentList[SOCIALBROWSER.random(0, SOCIALBROWSER.var.userAgentList.length - 1)];
+    }
+    SOCIALBROWSER.ws({ type: '[add-session]', session: session });
+  }
+  return session;
+};
+SOCIALBROWSER.removeSession = SOCIALBROWSER.deleteSession = function (session) {
+  if (typeof session == 'string') {
+    session = {
+      display: session,
+    };
+  }
+
+  SOCIALBROWSER.ws({ type: '[remove-session]', session: session });
+
+  return session;
+};
+SOCIALBROWSER.fetch = function (options, callback) {
+  options.id = new Date().getTime() + Math.random();
+  options.url = SOCIALBROWSER.handleURL(options.url);
+
+  return new Promise((resolve, reject) => {
+    SOCIALBROWSER.ipc('[fetch]', options).then((data) => {
+      if (data) {
+        if (callback) {
+          callback(data);
+        } else {
+          resolve(data);
+        }
+      }
+    });
+  });
+};
 SOCIALBROWSER.fetchJson = function (options, callback) {
+  if (typeof options == 'string') {
+    options = {
+      url: options,
+    };
+  }
   options.id = new Date().getTime() + Math.random();
   options.url = SOCIALBROWSER.handleURL(options.url);
 
@@ -240,7 +344,6 @@ SOCIALBROWSER.generateVPC = function () {
     hide_plugins: true,
     hide_mimetypes: true,
     hide_media_devices: true,
-    hide_permissions: true,
     hide_battery: true,
     set_window_active: true,
     dnt: true,
@@ -358,7 +461,7 @@ SOCIALBROWSER.addCSS = SOCIALBROWSER.addcss = function (code) {
     SOCIALBROWSER.log(error);
   }
 };
-SOCIALBROWSER.copy = function (text) {
+SOCIALBROWSER.copy = function (text = '') {
   SOCIALBROWSER.electron.clipboard.writeText(text.toString());
 };
 SOCIALBROWSER.paste = function () {
@@ -376,7 +479,14 @@ SOCIALBROWSER.triggerMouseEvent = function (node, eventType) {
     }
   } catch (err) {}
 };
+SOCIALBROWSER.clickKey = function (key) {
+  SOCIALBROWSER.log('[ Try Click Key ] : ' + key);
+  SOCIALBROWSER.webContents.sendInputEvent({ type: 'keyDown', keyCode: key });
+  SOCIALBROWSER.webContents.sendInputEvent({ type: 'char', keyCode: key });
+};
+
 SOCIALBROWSER.triggerKey = function (el, keyCode) {
+  el = SOCIALBROWSER.select(el);
   SOCIALBROWSER.triggerKeydown(el, keyCode);
   SOCIALBROWSER.triggerKeyup(el, keyCode);
   SOCIALBROWSER.triggerKeypress(el, keyCode);
@@ -386,23 +496,29 @@ SOCIALBROWSER.triggerKeydown = function (el, keyCode) {
   e.initEvent('keydown', true, true);
   e.keyCode = keyCode;
   e.which = keyCode;
-  el.dispatchEvent(e);
+  if (el.dispatchEvent) {
+    el.dispatchEvent(e);
+  }
 };
 SOCIALBROWSER.triggerKeyup = function (el, keyCode) {
   var e = document.createEvent('Events');
   e.initEvent('keyup', true, true);
   e.keyCode = keyCode;
   e.which = keyCode;
-  el.dispatchEvent(e);
+  if (el.dispatchEvent) {
+    el.dispatchEvent(e);
+  }
 };
 SOCIALBROWSER.triggerKeypress = function (el, keyCode) {
   var e = document.createEvent('Events');
   e.initEvent('keypress', true, true);
   e.keyCode = keyCode;
   e.which = keyCode;
-  el.dispatchEvent(e);
+  if (el.dispatchEvent) {
+    el.dispatchEvent(e);
+  }
 };
-SOCIALBROWSER.write = function (text, selector, timeout) {
+SOCIALBROWSER.write = function (text, selector, timeout = 500) {
   return new Promise((resolver, reject) => {
     if (!text) {
       reject('No Text');
@@ -414,16 +530,25 @@ SOCIALBROWSER.write = function (text, selector, timeout) {
         reject('No selector');
         return false;
       }
-      SOCIALBROWSER.copy(text);
-      SOCIALBROWSER.paste();
+
+      let momeryText = SOCIALBROWSER.electron.clipboard.readText() || '';
+
+      if (selector.tagName == 'INPUT' || selector.tagName == 'TEXTAREA') {
+        selector.value = text;
+      } else {
+        SOCIALBROWSER.copy(text);
+        SOCIALBROWSER.paste();
+      }
+
       setTimeout(() => {
+        SOCIALBROWSER.copy(momeryText);
         if (selector) {
           resolver(selector);
         } else {
           resolver(text);
         }
       }, 500);
-    }, timeout || 500);
+    }, timeout);
   });
 };
 SOCIALBROWSER.getOffset = function (el) {
@@ -443,10 +568,17 @@ SOCIALBROWSER.click = function (selector, realPerson = true) {
     if (realPerson && SOCIALBROWSER.currentWindow && SOCIALBROWSER.webContents && SOCIALBROWSER.currentWindow.isVisible()) {
       if (!SOCIALBROWSER.isViewable(dom)) {
         dom.scrollIntoView();
-        if (window.scrollY == 0) {
-        } else if (window.innerHeight + window.scrollY >= document.body.scrollHeight) {
-        } else {
-          window.scroll(window.scrollX, window.scrollY - dom.clientHeight);
+        window.scroll(window.scrollX, window.scrollY - (dom.clientHeight + window.innerHeight / 2));
+      }
+
+      if (!SOCIALBROWSER.isViewable(dom)) {
+        dom.scrollIntoView();
+        if (window.scrollY !== 0) {
+          let y = window.scrollY - dom.clientHeight;
+          if (y < 0) {
+            y = 0;
+          }
+          window.scroll(window.scrollX, y);
         }
       }
 
@@ -493,29 +625,52 @@ SOCIALBROWSER.getTimeZone = () => {
 };
 
 SOCIALBROWSER.isAllowURL = function (url) {
-  let allow = true;
-  if (SOCIALBROWSER.var.blocking.core.block_ads) {
-    SOCIALBROWSER.var.ad_list.forEach((ad) => {
-      if (url.like(ad.url)) {
-        allow = false;
-      }
-    });
+  if (SOCIALBROWSER.customSetting.blockURLs) {
+    if (url.like(SOCIALBROWSER.customSetting.blockURLs)) {
+      return false;
+    }
+  }
+  if (SOCIALBROWSER.customSetting.allowURLs) {
+    if (url.like(SOCIALBROWSER.customSetting.allowURLs)) {
+      return true;
+    }
   }
 
+  if (SOCIALBROWSER.var.blocking.white_list?.some((item) => url.like(item.url))) {
+    return true;
+  }
+
+  let allow = true;
+  if (SOCIALBROWSER.var.blocking.core.block_ads) {
+    allow = !SOCIALBROWSER.var.ad_list.some((ad) => url.like(ad.url));
+  }
+
+  if (allow) {
+    allow = !SOCIALBROWSER.var.blocking.black_list.some((item) => url.like(item.url));
+  }
+
+  if (allow && SOCIALBROWSER.var.blocking.allow_safty_mode) {
+    allow = !SOCIALBROWSER.var.blocking.un_safe_list.some((item) => url.like(item.url));
+  }
   return allow;
 };
 
 SOCIALBROWSER.isValidURL = SOCIALBROWSER.isURL = function (str) {
-  var pattern = new RegExp(
-    '^(https?:\\/\\/)?' + // protocol
-      '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|' + // domain name
-      '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
-      '(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*' + // port and path
-      '(\\?[;&a-z\\d%_.~+=-]*)?' + // query string
-      '(\\#[-a-z\\d_]*)?$',
-    'i'
-  ); // fragment locator
-  return !!pattern.test(encodeURI(str));
+  try {
+    var pattern = new RegExp(
+      '^((ft|htt)ps?:\\/\\/)?' + // protocol
+        '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|localhost|' + // domain name and extension
+        '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
+        '(\\:\\d+)?' + // port
+        '(\\/[-a-z\\d%@_.~+&:]*)*' + // path
+        '(\\?[;&a-z\\d%@_.,~+&:=-]*)?' + // query string
+        '(\\#[-a-z\\d_]*)?$',
+      'i' // fragment locator
+    );
+    return !!pattern.test(encodeURI(str));
+  } catch (error) {
+    return false;
+  }
 };
 
 SOCIALBROWSER.handle_url = SOCIALBROWSER.handleURL = function (u) {
@@ -540,52 +695,39 @@ SOCIALBROWSER.handle_url = SOCIALBROWSER.handleURL = function (u) {
 };
 
 SOCIALBROWSER.isViewable = function (element) {
-  const rect = element.getBoundingClientRect();
-  return rect.top >= 0 && rect.left >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && rect.right <= (window.innerWidth || document.documentElement.clientWidth);
-};
-
-SOCIALBROWSER.eval = function (code) {
-  if (!code) {
-    return;
+  if (!element) {
+    return false;
   }
-  if (typeof code !== 'string') {
-    code = code.toString();
-    code = code.slice(code.indexOf('{') + 1, code.lastIndexOf('}'));
+  if (typeof element == 'string') {
+    element = document.querySelector(element);
   }
-
-  SOCIALBROWSER.fs = SOCIALBROWSER.fs || SOCIALBROWSER.require('fs');
-  let path = `${SOCIALBROWSER.browserData.data_dir}/sessionData/script_${SOCIALBROWSER.remote.getCurrentWindow().id}_${Math.random()}.js`;
-  if (SOCIALBROWSER.fs.existsSync(path)) {
-    SOCIALBROWSER.require(path);
-  } else {
-    try {
-      SOCIALBROWSER.fs.writeFileSync(path, code);
-      SOCIALBROWSER.require(path);
-      setTimeout(() => {
-        SOCIALBROWSER.fs.unlinkSync(path);
-      }, 1000 * 3);
-    } catch (error) {
-      SOCIALBROWSER.log(error);
-    }
-  }
+  var rect = element.getBoundingClientRect();
+  var html = document.documentElement;
+  let t1 = rect.top >= 0;
+  let t2 = rect.left >= 0;
+  let t3 = rect.bottom <= (html.clientHeight || window.innerHeight);
+  let t4 = rect.right <= (html.clientWidth || window.innerWidth);
+  return t1 && t2 && t3 && t4;
 };
 
 SOCIALBROWSER.openWindow = function (_customSetting) {
-  let win = { trackingID: SOCIALBROWSER.guid(), eventList: [] };
-  win.on = function (name, callback) {
-    win.eventList.push({ name: name, callback: callback });
+  _customSetting.trackingID = new Date().getTime().toString();
+  SOCIALBROWSER.windowOpenList[_customSetting.trackingID] = { eventList: [] };
+  SOCIALBROWSER.windowOpenList[_customSetting.trackingID].on = function (name, callback) {
+    SOCIALBROWSER.windowOpenList[_customSetting.trackingID].eventList.push({ name: name, callback: callback });
   };
   _customSetting.windowType = _customSetting.windowType || 'social-popup';
-  let customSetting = { ...SOCIALBROWSER.customSetting, ..._customSetting, trackingID: win.trackingID };
+
+  let customSetting = { ...SOCIALBROWSER.customSetting, ..._customSetting };
 
   SOCIALBROWSER.on('[tracking-info]', (e, data) => {
-    if (data.trackingID == win.trackingID) {
+    if (data.trackingID == customSetting.trackingID) {
       if (data.windowID) {
-        win.id = data.windowID;
+        SOCIALBROWSER.windowOpenList[customSetting.trackingID].id = data.windowID;
       }
       if (data.isClosed) {
-        win.isClosed = data.isClosed;
-        win.eventList.forEach((e) => {
+        SOCIALBROWSER.windowOpenList[customSetting.trackingID].isClosed = data.isClosed;
+        SOCIALBROWSER.windowOpenList[customSetting.trackingID].eventList.forEach((e) => {
           if (e.name == 'close' && e.callback) {
             e.callback();
           }
@@ -593,22 +735,24 @@ SOCIALBROWSER.openWindow = function (_customSetting) {
             e.callback();
           }
         });
+        SOCIALBROWSER.callEvent('window-closed', SOCIALBROWSER.windowOpenList[customSetting.trackingID]);
       }
       if (data.loaded) {
-        win.eventList.forEach((e) => {
+        SOCIALBROWSER.windowOpenList[customSetting.trackingID].eventList.forEach((e) => {
           if (e.name == 'load' && e.callback) {
             e.callback();
           }
         });
+        SOCIALBROWSER.callEvent('window-loaded', SOCIALBROWSER.windowOpenList[customSetting.trackingID]);
       }
     }
   });
 
-  win.postMessage = function (...args) {
-    SOCIALBROWSER.ipc('window.message', { windowID: win.id, data: args[0], origin: args[1] || '*', transfer: args[2] });
+  SOCIALBROWSER.windowOpenList[customSetting.trackingID].postMessage = function (...args) {
+    SOCIALBROWSER.ipc('window.message', { windowID: SOCIALBROWSER.windowOpenList[customSetting.trackingID].id, data: args[0], origin: args[1] || '*', transfer: args[2] });
   };
 
-  win.eval = function (code) {
+  SOCIALBROWSER.windowOpenList[customSetting.trackingID].eval = function (code) {
     if (!code) {
       console.log('No Eval Code');
       return;
@@ -619,18 +763,17 @@ SOCIALBROWSER.openWindow = function (_customSetting) {
     }
 
     SOCIALBROWSER.message({
-      windowID: win.id,
+      windowID: SOCIALBROWSER.windowOpenList[customSetting.trackingID].id,
       eval: code,
     });
   };
 
-  win.close = function () {
-    SOCIALBROWSER.ipc('[browser-message]', { windowID: win.id, name: 'close' });
+  SOCIALBROWSER.windowOpenList[customSetting.trackingID].close = function () {
+    SOCIALBROWSER.ipc('[browser-message]', { windowID: SOCIALBROWSER.windowOpenList[customSetting.trackingID].id, name: 'close' });
   };
 
   SOCIALBROWSER.ipc('[open new popup]', customSetting);
-
-  return win;
+  return SOCIALBROWSER.windowOpenList[customSetting.trackingID];
 };
 
 window.console.clear = function () {};

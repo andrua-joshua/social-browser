@@ -1,4 +1,5 @@
 module.exports = function (child) {
+  child.cookieList = [];
   child.session_name_list = [];
   child.sessionBusy = false;
   child.allowSessionHandle = false;
@@ -172,19 +173,21 @@ module.exports = function (child) {
     return true;
   };
 
-  child.handleSession = function (obj) {
+  child.handleSession = function (sessionOptions) {
     if (child.sessionBusy) {
-      setTimeout(() => {
-        child.handleSession(obj);
-      }, 1000 * 5);
+      // setTimeout(() => {
+      //   child.handleSession(obj);
+      // }, 1000 * 5);
       return;
     }
+
     child.sessionBusy = true;
 
-    if (!obj || !obj.name) {
+    if (!sessionOptions || !sessionOptions.name) {
+      child.sessionBusy = false;
       return;
     }
-    let name = obj.name;
+    let name = sessionOptions.name;
 
     let user = child.parent.var.session_list.find((s) => s.name == name) ?? {};
     user.privacy = user.privacy || child.parent.var.blocking.privacy;
@@ -192,44 +195,53 @@ module.exports = function (child) {
     if (!user.privacy.enable_virtual_pc) {
       user.privacy = child.parent.var.blocking.privacy;
     }
-    user.defaultUserAgent = obj.defaultUserAgent ? { url: obj.userAgentURL } : user.defaultUserAgent || {};
+    user.defaultUserAgent = sessionOptions.defaultUserAgent ? { url: sessionOptions.userAgentURL } : user.defaultUserAgent || {};
 
     if (!user.defaultUserAgent.url || user.defaultUserAgent.edit) {
       user.defaultUserAgent = { url: child.parent.var.core.defaultUserAgent.url, edit: true };
     }
 
     child.cookies[name] = child.cookies[name] || [];
-    let ss = name === '_' ? child.electron.session.defaultSession : child.electron.session.fromPartition(name);
+    let ss = sessionOptions.isDefault ? child.electron.session.defaultSession : child.electron.session.fromPartition(name);
     ss.name = name;
-    ss.allowNTLMCredentialsForDomains('*');
     ss.setUserAgent(user.defaultUserAgent.url);
 
-    if (child.session_name_list.some((s) => s.name === name)) {
+    let sessionIndex = -1;
+    if (sessionOptions.isDefault) {
+      sessionIndex = child.session_name_list.findIndex((s) => s.isDefault === true);
+    } else {
+      sessionIndex = child.session_name_list.findIndex((s) => s.name === name);
+    }
+
+    if (sessionIndex !== -1) {
+      child.session_name_list[sessionIndex].user = user;
       child.allowSessionHandle = false;
-      child.session_name_list.forEach((s, i) => {
-        if (s.name === name) {
-          child.session_name_list[i].user = user;
-        }
-      });
     } else {
       child.allowSessionHandle = true;
       child.session_name_list.push({
-        name: name,
+        name: sessionOptions.isDefault ? null : name,
         user: user,
+        proxy: {},
+        isDefault: sessionOptions.isDefault || false,
       });
+      sessionIndex = child.session_name_list.length - 1;
+      ss.setSpellCheckerLanguages(['en-US']);
+      ss.allowNTLMCredentialsForDomains('*');
     }
 
-    ss.setSpellCheckerLanguages(['en-US']);
     let proxy = null;
 
-    if (obj.proxy) {
-      proxy = obj.proxy;
+    if (sessionOptions.proxy) {
+      proxy = sessionOptions.proxy;
     } else if (user.proxy && user.proxy.enabled && user.proxy.mode) {
       proxy = user.proxy;
-    } else if (child.parent.var.proxy.enabled && child.parent.var.proxy.mode) {
+    } else if (child.parent.var.proxy && child.parent.var.proxy.enabled && child.parent.var.proxy.mode) {
       proxy = child.parent.var.proxy;
     }
-    if (proxy) {
+
+    if (proxy && JSON.stringify(child.session_name_list[sessionIndex].proxy) !== JSON.stringify(proxy)) {
+      child.session_name_list[sessionIndex].proxy = proxy;
+
       if (proxy.mode == 'fixed_servers' && (proxy.url || (proxy.ip && proxy.port))) {
         if (!proxy.url && proxy.ip && proxy.port) {
           proxy.url = proxy.ip + ':' + proxy.port;
@@ -244,58 +256,73 @@ module.exports = function (child) {
           proxy.ip = arr[0];
           proxy.port = arr[1];
         }
-        let proxyRules = '';
-        let startline = '';
-        if (proxy.socks4) {
-          proxyRules += startline + 'socks4://' + proxy.ip + ':' + proxy.port;
-          startline = ',';
+
+        if (proxy.ip && proxy.port) {
+          let proxyRules = '';
+          let startline = ',';
+          if (proxy.socks4) {
+            proxyRules += startline + 'socks4://' + proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (proxy.socks5) {
+            proxyRules += startline + 'socks5://' + proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (proxy.ftp) {
+            proxyRules += startline + 'ftp://' + proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (proxy.http) {
+            proxyRules += startline + 'http://' + proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (proxy.https) {
+            proxyRules += startline + 'https://' + proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (!proxy.http && !proxy.https && !proxy.ftp && !proxy.socks5 && !proxy.socks4) {
+            proxyRules = proxy.ip + ':' + proxy.port;
+            startline = ',';
+          }
+          if (proxyRules && proxy.direct) {
+            proxyRules += startline + 'direct://';
+          }
+          if (proxyRules) {
+            ss.closeAllConnections().then(() => {
+              ss.setProxy({
+                mode: proxy.mode,
+                proxyRules: proxyRules,
+                proxyBypassRules: proxy.ignore || 'localhost,127.0.0.1,::1,192.168.*',
+              })
+                .then(() => {
+                  child.log(`session ${name} Proxy Set : ${proxyRules}`);
+                })
+                .catch((err) => {
+                  child.log(err);
+                });
+            });
+          }
         }
-        if (proxy.socks5) {
-          proxyRules += startline + 'socks5://' + proxy.ip + ':' + proxy.port;
-          startline = ',';
-        }
-        if (proxy.ftp) {
-          proxyRules += startline + 'ftp://' + proxy.ip + ':' + proxy.port;
-          startline = ',';
-        }
-        if (proxy.http) {
-          proxyRules += startline + 'http://' + proxy.ip + ':' + proxy.port;
-          startline = ',';
-        }
-        if (proxy.https) {
-          proxyRules += startline + 'https://' + proxy.ip + ':' + proxy.port;
-          startline = ',';
-        }
-        if (proxyRules == '') {
-          proxyRules = proxy.ip + ':' + proxy.port;
-          startline = ',';
-        }
-        ss.setProxy({
-          mode: proxy.mode,
-          proxyRules: proxyRules,
-          proxyBypassRules: proxy.ignore || '127.0.0.1',
-        }).then(() => {
-          // child.log(`session ${name} Proxy Set : ${proxyRules}`);
-        });
       } else if (proxy.mode == 'pac_script' && proxy.pacScript) {
         ss.setProxy({
           mode: proxy.mode,
           pacScript: proxy.pacScript,
         }).then(() => {
-          // child.log(`session ${name} Proxy Set : ${proxy.mode}`);
+          child.log(`session ${name} Proxy Set : ${proxy.mode}`);
         });
       } else {
         ss.setProxy({
           mode: proxy.mode,
         }).then(() => {
-          //  child.log(`session ${name} Proxy Set Default : ${proxy.mode}`);
+          child.log(`session ${name} Proxy Set Default : ${proxy.mode}`);
         });
       }
-    } else {
+    } else if (!proxy) {
       ss.setProxy({
         mode: 'system',
+        proxyBypassRules: 'localhost,127.0.0.1,::1,192.168.*',
       }).then(() => {
-        // child.log(`session ${name} Proxy Set : System`);
+        child.log(`session ${name} Proxy Set : system `);
       });
     }
 
@@ -306,17 +333,39 @@ module.exports = function (child) {
     if (child.allowSessionHandle === true) {
       child.log(`\n\n [ Handle Session ......  ( ${name} ) ]  / ${child.session_name_list.length} \n\n `);
 
-      ss.protocol.handle('browser', (req) => {
-        let url = req.url.substr(10);
-        url = `http://127.0.0.1:60080/${url}`;
-        return child.electron.net.fetch(url, {
-          method: req.method,
-          headers: req.headers,
-          body: req.body,
+      try {
+        ss.protocol.handle('browser', (req) => {
+          let url = req.url.replace('browser://', 'http://127.0.0.1:60080/').replace('/?', '?');
+          return child.electron.net.fetch(url, {
+            method: req.method,
+            headers: req.headers,
+            body: req.body,
+          });
+        });
+      } catch (error) {
+        console.log(error, sessionOptions, child.session_name_list);
+      }
+
+      ss.setDisplayMediaRequestHandler((request, callback) => {
+        child.electron.desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+          callback({ video: sources[0], audio: 'loopback' });
         });
       });
 
       ss.webRequest.onBeforeRequest(filter, function (details, callback) {
+        let url = details.url.toLowerCase();
+        let source_url = '';
+        details.requestHeaders = details.requestHeaders || {};
+
+        source_url = details.requestHeaders['host'] || details.requestHeaders['origin'] || details['referrer'];
+
+        if (!source_url && details.webContents) {
+          source_url = details.webContents.getURL();
+        }
+        if (!source_url) {
+          source_url = url;
+        }
+
         if (child.parent.var.core.enginOFF) {
           callback({
             cancel: false,
@@ -324,22 +373,43 @@ module.exports = function (child) {
           return;
         }
 
+        let customSetting = {};
         if (details.webContents) {
-          if ((w = child.windowList.find((w) => w.id2 === details.webContents.id))) {
-            if (w.customSetting.allowAds) {
-              callback({
-                cancel: false,
-              });
-              return;
+          let win = child.electron.BrowserWindow.fromWebContents(details.webContents);
+          if (win) {
+            if ((w = child.windowList.find((w) => w.id === win.id))) {
+              customSetting = w.customSetting;
             }
+          }
+        }
+
+        if (customSetting.allowAds) {
+          callback({
+            cancel: false,
+          });
+          return;
+        }
+        if (customSetting.blockURLs) {
+          if (url.like(customSetting.blockURLs)) {
+            callback({
+              cancel: false,
+              redirectURL: 'browser://html/logo.html',
+            });
+            return;
+          }
+        }
+        if (customSetting.allowURLs) {
+          if (!url.like(customSetting.allowURLs)) {
+            callback({
+              cancel: false,
+              redirectURL: 'browser://html/logo.html',
+            });
+            return;
           }
         }
 
         let _ss = child.session_name_list.find((s) => s.name == name);
         _ss.user.privacy.vpc = _ss.user.privacy.vpc || {};
-        details.requestHeaders = details.requestHeaders || {};
-
-        let url = details.url.toLowerCase();
 
         if ((info = child.getOverwriteInfo(url))) {
           if (info.overwrite) {
@@ -350,29 +420,6 @@ module.exports = function (child) {
             return;
           }
         }
-        let source_url = '';
-
-        if (!source_url) {
-          source_url = details.requestHeaders['host'] || details.requestHeaders['origin'] || details['referrer'];
-        }
-
-        if (!source_url && details.webContents) {
-          source_url = details.webContents.getURL();
-        }
-        if (!source_url) {
-          source_url = url;
-        }
-
-        let urlObject1 = child.url.parse(url);
-        let urlObject2 = child.url.parse(source_url);
-
-        let domain1 = urlObject1.hostname.split('.');
-        domain1 = domain1[domain1.length - 2];
-
-        let domain2 = urlObject2.hostname.split('.');
-        domain2 = domain2[domain2.length - 2];
-
-        let isSameSite = domain1 === domain2;
 
         if (url.indexOf('localhost') === 0) {
           callback({
@@ -388,59 +435,18 @@ module.exports = function (child) {
           return;
         }
 
-        // protect from know login info
-        if (!isSameSite && url.like('*favicon.ico*') && _ss.user.privacy.enable_virtual_pc && _ss.user.privacy.hide_social_media_info) {
-          callback({
-            cancel: true,
-          });
-          return;
-        }
-
-        if (child.parent.var.blocking.white_list.some((item) => item.url.length > 2 && url.like(item.url))) {
-          callback({
-            cancel: false,
-          });
-          return;
-        }
-
-        if (child.parent.var.blocking.black_list.some((item) => url.like(item.url))) {
-          callback({
-            cancel: false,
-            redirectURL: `browser://block-site?url=${url}&msg=Site in Black List From Setting`,
-          });
-          return;
-        }
-
-        if (child.parent.var.blocking.allow_safty_mode && child.parent.var.blocking.un_safe_list.some((item) => url.like(item.url))) {
-          callback({
-            cancel: false,
-            redirectURL: `browser://block-site?url=${url}&msg=Not Safe Site From Setting`,
-          });
-
-          return;
-        }
-
-        if (child.parent.var.blocking.core.block_ads_servers) {
-          if (child.adList.includes(child.url.parse(url).host)) {
-            if (url.like('*.js*|*/js*')) {
-              callback({
-                cancel: false,
-                redirectURL: 'browser://js/fake.js?' + url.split('?')[1],
-              });
-            } else {
-              callback({
-                cancel: true,
-              });
-            }
-            return;
-          }
-        }
-
-        if (child.parent.var.blocking.core.block_ads && url.like(child.parent.var.$ad_string)) {
+        if (!child.isAllowURL(url)) {
           if (url.like('*.js*|*/js*')) {
+            let query = '';
+            if (url.split('?')[1]) {
+              query += url.split('?')[1] + '&x-url=' + url.split('?')[0];
+            } else {
+              query += 'x-url=' + url;
+            }
+
             callback({
               cancel: false,
-              redirectURL: 'browser://js/fake.js?' + url.split('?')[1],
+              redirectURL: 'browser://js/fake.js?' + query,
             });
           } else {
             callback({
@@ -473,6 +479,39 @@ module.exports = function (child) {
         let url = details.url.toLowerCase();
         let urlObject = child.url.parse(url);
 
+        let domainName = urlObject.hostname;
+        let domainCookie = details.requestHeaders['Cookie'] || '';
+        let domainCookieObject = child.cookieParse(domainCookie);
+        let cookieIndex = child.cookieList.findIndex((c) => domainName.contains(c.domain) && c.partition == name);
+        if (cookieIndex === -1) {
+          if (domainName && domainCookie) {
+            let co = {
+              partition: name,
+              domain: domainName,
+              cookie: domainCookie,
+              time: new Date().getTime(),
+            };
+            child.cookieList.push(co);
+            child.sendMessage({
+              type: '[cookieList-set]',
+              cookie: co,
+            });
+          }
+        } else {
+          if (child.cookieList[cookieIndex].off) {
+            console.log('Cookie OFF');
+          } else if (child.cookieList[cookieIndex].lock) {
+            domainCookieObject = { ...child.cookieParse(child.cookieList[cookieIndex].cookie) };
+            details.requestHeaders['Cookie'] = child.cookieStringify({ ...domainCookieObject });
+          } else if (domainCookie && child.cookieList[cookieIndex].cookie !== domainCookie) {
+            child.cookieList[cookieIndex].cookie = domainCookie;
+            child.sendMessage({
+              type: '[cookieList-set]',
+              cookie: child.cookieList[cookieIndex],
+            });
+          }
+        }
+
         let source_url = '';
 
         if (!source_url) {
@@ -487,15 +526,6 @@ module.exports = function (child) {
         }
 
         source_url = source_url.toLowerCase();
-        let urlObject2 = child.url.parse(source_url);
-
-        let domain1 = urlObject.hostname.split('.');
-        domain1 = domain1[domain1.length - 2] || '';
-
-        let domain2 = urlObject2.hostname.split('.');
-        domain2 = domain2[domain2.length - 2] || '';
-
-        let isSameSite = domain1 === domain2;
 
         if (_ss.user.privacy.enable_virtual_pc && _ss.user.privacy.vpc && _ss.user.privacy.vpc.maskUserAgentURL) {
           if (!details.requestHeaders['User-Agent'].like('*[xx-*')) {
@@ -528,9 +558,8 @@ module.exports = function (child) {
           }
         });
 
-        // Must For Login Problem ^_^
-
-        if (child.parent.var.blocking.white_list.some((item) => item.url.length > 2 && url.like(item.url))) {
+        // Must Before Cookie Changing For Google and Youtube Login Problem ^_^
+        if (domainName.like('*youtube*|*google*')) {
           callback({
             cancel: false,
             requestHeaders: details.requestHeaders,
@@ -538,79 +567,53 @@ module.exports = function (child) {
           return;
         }
 
-        if ((cookie_obj = child.cookieParse(details.requestHeaders['Cookie']))) {
-          if (false && !child.parent.var.core.cookiesOFF && cookie_obj) {
-            let isMainFrame = details.resourceType === 'mainFrame';
-            if (child.cookies[name]) {
-              let co_list = child.cookies[name].filter((c) => c && (urlObject.hostname.indexOf(c.domain) > -1 || c.domain.indexOf(urlObject.hostname) > -1) && urlObject.path.indexOf(c.path) > -1);
-              co_list.forEach((co) => {
-                if (false && co.expirationDate && co.expirationDate <= new Date().getTime()) {
-                  // child.log(`\n\n Block Cookie expires`, co, new Date(co.expirationDate));
-                } else if (!co.value) {
-                  // child.log(`\n\n Block Cookie !value`, co);
-                } else if (co.secure && (urlObject.protocol === 'http:' || urlObject.protocol !== urlObject2.protocol)) {
-                  // child.log(`\n\n Block secure Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                } else if (co.sameSite && co.sameSite == 'strict' && !isSameSite) {
-                  // child.log(`\n\n Block Strick Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                } else if (co.sameSite && co.sameSite == 'lax' && !isSameSite && ((details.method !== 'GET' && details.method !== 'HEAD') || !isMainFrame)) {
-                  // child.log(`\n\n Block lax Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                } else if (co.sameSite && co.sameSite == 'unspecified' && !isSameSite && ((details.method !== 'GET' && details.method !== 'HEAD' && details.method !== 'POST') || !isMainFrame)) {
-                  // child.log(`\n\n Block unspecified Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                } else if (co.sameSite && co.sameSite == 'no_restriction' && !co.secure) {
-                  // child.log(`\n\n Block none Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                } else {
-                  cookie_obj[co.name] = co.value;
-                  // child.log(`\n\n Send Cookie isSameSite=${isSameSite} - ${details.resourceType} - ${details.method} \n ${source_url} \n ${details.url} `, co);
-                }
-              });
-            }
-            details.requestHeaders['Cookie'] = child.cookieStringify(cookie_obj);
+        if (domainCookieObject) {
+          if (domainCookieObject && child.parent.var.blocking.core.send_browser_id) {
+            domainCookieObject['_gab'] = 'sb.' + child.parent.var.core.id;
           }
 
-          if (cookie_obj && child.parent.var.blocking.core.send_browser_id) {
-            cookie_obj['_gab'] = 'sb.' + child.parent.var.core.id;
-          }
-
-          if (cookie_obj && _ss.user.privacy.enable_virtual_pc && _ss.user.privacy.vpc.block_cloudflare) {
-            if (cookie_obj['_cflb']) {
-              cookie_obj['_cflb'] = 'cf.' + cookie_obj['_gab'];
+          if (domainCookieObject && _ss.user.privacy.enable_virtual_pc && _ss.user.privacy.vpc.block_cloudflare) {
+            if (domainCookieObject['_cflb']) {
+              domainCookieObject['_cflb'] = 'cf.' + domainCookieObject['_gab'];
             }
 
-            if (cookie_obj['_cf_bm']) {
-              cookie_obj['_cf_bm'] = 'cf.' + cookie_obj['_gab'];
+            if (domainCookieObject['_cf_bm']) {
+              domainCookieObject['_cf_bm'] = 'cf.' + domainCookieObject['_gab'];
             }
 
-            if (cookie_obj['_cfduid']) {
-              cookie_obj['_cfduid'] = 'cf.' + cookie_obj['_gab'];
+            if (domainCookieObject['_cfduid']) {
+              domainCookieObject['_cfduid'] = 'cf.' + domainCookieObject['_gab'];
             }
 
-            if (cookie_obj['__cfduid']) {
-              cookie_obj['__cfduid'] = 'cf.' + cookie_obj['_gab'];
+            if (domainCookieObject['__cfduid']) {
+              domainCookieObject['__cfduid'] = 'cf.' + domainCookieObject['_gab'];
             }
           }
 
-          if (cookie_obj && !url.like('*google.com*|*youtube.com*')) {
+          if (domainCookieObject && !url.like('*google.com*|*youtube.com*')) {
             if (_ss.user.privacy.enable_virtual_pc && _ss.user.privacy.vpc.hide_gid) {
-              if (cookie_obj['_gid']) {
-                delete cookie_obj['_gid'];
+              if (domainCookieObject['_gid']) {
+                delete domainCookieObject['_gid'];
               }
             }
           }
-          details.requestHeaders['Cookie'] = child.cookieStringify(cookie_obj);
-        } else {
-          // child.log('!cookie_obj', details.requestHeaders);
+          details.requestHeaders['Cookie'] = child.cookieStringify(domainCookieObject);
         }
 
         if (_ss.user.privacy.vpc.dnt) {
           details.requestHeaders['DNT'] = '1'; // dont track me
         }
 
+        if (child.parent.var.blocking.white_list.some((item) => url.like(item.url))) {
+          callback({
+            cancel: false,
+            requestHeaders: details.requestHeaders,
+          });
+          return;
+        }
         //details.requestHeaders['Referrer-Policy'] = 'no-referrer';
 
         // try edit cookies before send [tracking cookies]
-        // child.log(details.requestHeaders['Cookie'])
-
-        // let cookie_obj = details.requestHeaders['Cookie'] ? child.cookieParse(details.requestHeaders['Cookie']) : {};
 
         if (url.like('browser*') || url.like('*127.0.0.1*')) {
           exit = true;
@@ -684,7 +687,7 @@ module.exports = function (child) {
           }
         });
 
-        if (child.parent.var.blocking.white_list.some((item) => item.url.length > 2 && url.like(item.url))) {
+        if (child.parent.var.blocking.white_list.some((item) => url.like(item.url))) {
           callback({
             cancel: false,
             responseHeaders: {
@@ -703,6 +706,7 @@ module.exports = function (child) {
         let a_Headers = details.responseHeaders['Access-Control-Allow-Headers'] || details.responseHeaders['Access-Control-Allow-Headers'.toLowerCase()];
         let s_policy = details.responseHeaders['Content-Security-Policy'] || details.responseHeaders['Content-Security-Policy'.toLowerCase()];
         let s_policy_report = details.responseHeaders['Content-Security-Policy-Report-Only'] || details.responseHeaders['content-security-policy-report-only'.toLowerCase()];
+        let s_policy_resource = details.responseHeaders['Cross-Origin-Resource-Policy'] || details.responseHeaders['Cross-Origin-Resource-Policy'.toLowerCase()];
 
         // Must Delete Before set new values [duplicate headers]
         [
@@ -713,6 +717,7 @@ module.exports = function (child) {
           'Access-Control-Allow-Private-Network',
           'Content-Security-Policy-Report-Only',
           'Content-Security-Policy',
+          'Cross-Origin-Resource-Policy',
           'Access-Control-Allow-Credentials',
           'Access-Control-Allow-Methods',
           'Access-Control-Allow-Headers',
@@ -733,7 +738,7 @@ module.exports = function (child) {
         if (a_orgin) {
           details.responseHeaders['Access-Control-Allow-Origin'.toLowerCase()] = a_orgin;
         } else {
-          details.responseHeaders['Access-Control-Allow-Origin'.toLowerCase()] = details['referer'] ? [details['referer']] : ['*'];
+          details.responseHeaders['Access-Control-Allow-Origin'.toLowerCase()] = [details['referrer']] || [details['referer']] || ['*'];
         }
         if (a_expose) {
           details.responseHeaders['Access-Control-Expose-Headers'.toLowerCase()] = a_expose;
@@ -743,35 +748,37 @@ module.exports = function (child) {
           for (var key in s_policy) {
             s_policy[key] = s_policy[key].replaceAll('data:  ', 'data:  browser://* ');
             s_policy[key] = s_policy[key].replaceAll('script-src ', 'script-src browser://* ');
+            s_policy[key] = s_policy[key].replaceAll('frame-src ', 'frame-src browser://* ');
+            s_policy[key] = s_policy[key].replaceAll("default-src 'none'", '');
           }
 
-          // s_policy = JSON.stringify(s_policy);
+          if (url.like('*embed*')) {
+            details.responseHeaders['Content-Security-Policy'.toLowerCase()] = 'cross-origin';
+          } else {
+            details.responseHeaders['Content-Security-Policy'.toLowerCase()] = s_policy;
+          }
+        }
+        if (s_policy_resource && Array.isArray(s_policy_resource)) {
+          for (var key in s_policy_resource) {
+          }
 
-          // s_policy = s_policy.replaceAll('data: ', 'data: http://127.0.0.1:60080 browser://* ');
-
-          // s_policy = s_policy.replace('mediastream: ', 'mediastream: http://127.0.0.1:60080 ');
-
-          // s_policy = s_policy.replace('blob: ', 'blob: http://127.0.0.1:60080 ');
-
-          // s_policy = s_policy.replace('filesystem: ', 'filesystem: http://127.0.0.1:60080 ');
-
-          // s_policy = s_policy.replace('img-src ', 'img-src http://127.0.0.1:60080 ');
-
-          // s_policy = s_policy.replace('default-src ', "default-src 'self' http://127.0.0.1:60080 ");
-          // s_policy = s_policy.replace('script-src ', "script-src 'self' http://127.0.0.1:60080 ");
-
-          details.responseHeaders['Content-Security-Policy'.toLowerCase()] = s_policy;
+          if (url.like('*embed*')) {
+            details.responseHeaders['Cross-Origin-Resource-Policy'.toLowerCase()] = 'cross-origin';
+          } else {
+            details.responseHeaders['Cross-Origin-Resource-Policy'.toLowerCase()] = s_policy_resource;
+          }
         }
 
         if (s_policy_report && Array.isArray(s_policy_report)) {
           for (var key in s_policy_report) {
             s_policy_report[key] = s_policy_report[key].replaceAll('data:  ', 'data:  http://127.0.0.1:60080 browser://* ');
           }
-
-          details.responseHeaders['Content-Security-Policy-Report-Only'.toLowerCase()] = s_policy_report;
+          if (url.like('*embed*')) {
+            details.responseHeaders['Content-Security-Policy-Report-Only'.toLowerCase()] = 'cross-origin';
+          } else {
+            details.responseHeaders['Content-Security-Policy-Report-Only'.toLowerCase()] = s_policy_report;
+          }
         }
-
-        details.responseHeaders['Cross-Origin-Resource-Policy'.toLowerCase()] = 'cross-origin';
 
         if ((info = child.getOverwriteInfo(url))) {
           if (url.like(info.to) && info.rediect_from) {
@@ -808,7 +815,7 @@ module.exports = function (child) {
         if (webContents.getURL().like('http://127.0.0.1*|https://127.0.0.1*|http://localhost*|https://localhost*')) {
           return callback(true);
         } else {
-          let allow = child.parent.var.blocking.permissions['allow_' + permission.replace('-', '_')] || false;
+          let allow = child.parent.var.blocking.permissions[permission] || false;
           return callback(allow);
         }
       });
@@ -819,7 +826,7 @@ module.exports = function (child) {
         if (webContents && webContents.getURL().like('http://127.0.0.1*|https://127.0.0.1*|http://localhost*|https://localhost*')) {
           return true;
         } else {
-          let allow = child.parent.var.blocking.permissions['allow_' + permission.replace('-', '_')] || false;
+          let allow = child.parent.var.blocking.permissions[permission] || false;
           // child.log(` \n  <<< setPermissionCheckHandler ${permission} ( ${allow} )  ${webContents.getURL()} \n `);
           return allow;
         }
@@ -855,7 +862,7 @@ module.exports = function (child) {
         };
 
         let ok = false;
-        if (child.parent.var.blocking.downloader.enabled && dl.url.indexOf('127.0.0.1') === -1 && dl.url.indexOf('blob') !== 0) {
+        if (child.parent.var.blocking.downloader.enabled && !dl.url.contains('browser://|http://127.0.0.1|http://localhost') && dl.url.indexOf('blob') !== 0) {
           child.parent.var.blocking.downloader.apps.forEach((app) => {
             if (ok) {
               return;
@@ -963,39 +970,17 @@ module.exports = function (child) {
       });
     }
 
-    if (false && child.allowSessionHandle) {
-      ss.cookies.on('changed', function (event, cookie, cause, removed) {
-        if (child.sessionBusy) {
-          return;
-        }
-        // if (cookie.domain.startsWith('.')) {
-        //   cookie.url = 'https://' + cookie.domain.substring(1);
-        // } else {
-        //   cookie.url = 'https://' + cookie.domain;
-        // }
-        child.sendMessage({
-          type: '[cookie-changed]',
-          partition: name,
-          cookie: cookie,
-          removed: removed,
-          cause: cause,
-        });
-
-        child.cookies[name].forEach((co, i) => {
-          if (co && co.domain === cookie.domain && co.name === cookie.name) {
-            child.cookies[name].splice(i, 1);
-          }
-        });
-      });
-    }
-
-    child.sessionBusy = false;
+    setTimeout(() => {
+      child.sessionBusy = false;
+      if (!sessionOptions.isDefault) {
+        // child.handleSession({ ...sessionOptions, isDefault: true });
+      }
+    }, 1000 * 3);
 
     return ss;
   };
 
   child.sessionConfig = () => {
-    child.handleSession({ name: child.parent.options.partition });
-    // child.handleSession('_');
+    child.handleSession({ name: child.partition });
   };
 };

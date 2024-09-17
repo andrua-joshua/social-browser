@@ -71,6 +71,52 @@ module.exports = function init(child) {
     }
   });
 
+  child.electron.ipcMain.handle('[open-external]', (e, obj) => {
+    child.openExternal(obj.link);
+    return true;
+  });
+  child.electron.ipcMain.handle('[exec]', (e, obj) => {
+    child.exec(obj.cmd);
+    return true;
+  });
+  child.electron.ipcMain.handle('[exe]', (e, obj) => {
+    child.exe(obj.cmd, obj.args);
+    return true;
+  });
+  child.electron.ipcMain.handle('[kill]', (e, obj) => {
+    child.child_process.exec('tasklist', { maxBuffer: 1024 * 1024 * 2 }, function (err, stdout, stderr) {
+      let programsList = [];
+      if (stdout) {
+        let lines = stdout.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (line === '') continue;
+          var values = line.split(/\s+/);
+          programsList.push({
+            name: values[0],
+            pid: values[1],
+            memory: values[4],
+          });
+        }
+
+        programsList.forEach((itm) => {
+          if (itm.name.like(obj.name)) {
+            try {
+              process.kill(itm.pid);
+            } catch (error) {
+              child.log(error);
+            }
+          }
+        });
+      }
+    });
+
+    return true;
+  });
+  child.electron.ipcMain.handle('request-cookie', (e, obj) => {
+    return child.cookieList.find((c) => obj.domain.like(c.domain) && c.partition == obj.partition);
+  });
+
   child.electron.ipcMain.handle('online-status', (e, obj) => {
     child.parent.var.core.onLineStatus = obj.status;
   });
@@ -90,6 +136,12 @@ module.exports = function init(child) {
   });
   child.electron.ipcMain.handle('[cookies-clear]', (e, obj) => {
     return child.clearCookies(obj);
+  });
+  child.electron.ipcMain.handle('show_message', (e, data) => {
+    let win = child.electron.BrowserWindow.fromId(data.windowID);
+    if (win) {
+      win.send('show_message', data);
+    }
   });
   child.electron.ipcMain.handle('message', (e, message) => {
     let win = child.electron.BrowserWindow.fromId(message.windowID);
@@ -131,10 +183,10 @@ module.exports = function init(child) {
   });
 
   child.electron.ipcMain.handle('[add][window]', (e, data) => {
-    let win = child.windowList.find((w) => w.id == data.windowID);
-    if (win) {
-      win.customSetting = { ...win.customSetting, ...data.customSetting };
-      win.id2 = data.id2 || win.id2;
+    let w = child.windowList.find((w) => w.id == data.windowID);
+    if (w) {
+      w.customSetting = { ...w.customSetting, ...data.customSetting };
+      w.id2 = data.id2 || w.id2;
     } else {
       child.windowList.push({
         id: data.windowID,
@@ -184,7 +236,7 @@ module.exports = function init(child) {
     return child.assignWindows.find((w) => w.childWindowID == info.childWindowID);
   });
 
-  child.electron.ipcMain.handle('[fetch-json]', async (e, options) => {
+  child.electron.ipcMain.handle('[fetch]', async (e, options) => {
     options.body = options.body || options.data || options.payload;
     if (options.body && typeof options.body != 'string') {
       options.body = JSON.stringify(options.body);
@@ -215,9 +267,53 @@ module.exports = function init(child) {
     if (data) {
       if (options.return == 'json') {
         return data.json();
+      }
+      if (options.return == 'text') {
+        return data.text();
       } else {
         return data.text();
       }
+    }
+  });
+
+  child.electron.ipcMain.handle('[fetch-json]', async (e, options) => {
+    options.body = options.body || options.data || options.payload;
+    if (options.body && typeof options.body != 'string') {
+      options.body = JSON.stringify(options.body);
+    }
+    options.return = options.return || 'json';
+    try {
+      let data = await child.fetch(options.url, {
+        mode: 'cors',
+        method: options.method || 'get',
+        headers: options.headers || {
+          'Content-Type': 'application/json',
+          'User-Agent': child.parent.var.core.defaultUserAgent.url,
+        },
+        body: options.body,
+        redirect: options.redirect || 'follow',
+        agent: function (_parsedURL) {
+          if (_parsedURL.protocol == 'http:') {
+            return new child.http.Agent({
+              keepAlive: true,
+            });
+          } else {
+            return new child.https.Agent({
+              keepAlive: true,
+            });
+          }
+        },
+      });
+
+      if (data) {
+        if (options.return == 'json') {
+          return data.json();
+        } else {
+          return data.text();
+        }
+      }
+    } catch (error) {
+      console.log(error);
     }
   });
 
@@ -245,6 +341,13 @@ module.exports = function init(child) {
           m2.click = function () {
             win.webContents.send('[run-menu]', { index: i, index2: i2 });
           };
+          if (m2.submenu) {
+            m2.submenu.forEach((m3, i3) => {
+              m3.click = function () {
+                win.webContents.send('[run-menu]', { index: i, index2: i2, index3: i3 });
+              };
+            });
+          }
         });
       }
     });
@@ -289,6 +392,11 @@ module.exports = function init(child) {
         child.profilesWindow.hide();
       }
     } else {
+      delete options.parentSetting;
+      // let w = child.windowList.find((w) => w.customSetting.windowType == 'main');
+      // if (w && w.window && !w.window.isDestroyed()) {
+
+      // }
       child.sendMessage({
         type: '[show-view]',
         options: options,
@@ -372,6 +480,7 @@ module.exports = function init(child) {
   child.electron.ipcMain.handle('[open new tab]', (event, data) => {
     data.partition = data.partition || child.parent.var.core.session.name;
     data.user_name = data.user_name || child.parent.var.core.session.display;
+    data.title = data.title || data.url;
 
     if (child.windowList.some((w) => w.customSetting.windowType == 'main')) {
       child.windowList.forEach((w) => {
@@ -394,10 +503,14 @@ module.exports = function init(child) {
 
     delete data.name;
     data.windowType = data.windowType || 'popup';
-    child.sendMessage({
-      type: '[create-new-window]',
-      options: data,
-    });
+    if (data.partition == child.partition) {
+      child.createNewWindow(data);
+    } else {
+      child.sendMessage({
+        type: '[create-new-window]',
+        options: data,
+      });
+    }
   });
 
   child.electron.ipcMain.handle('[show-addressbar]', (event, data) => {
@@ -482,8 +595,8 @@ module.exports = function init(child) {
       child.sendMessage({ type: '[window-go-back]', data: data });
     } else if (data.windowID) {
       let win = child.electron.BrowserWindow.fromId(data.windowID);
-      if (win.webContents.canGoBack()) {
-        win.webContents.goBack();
+      if (win.webContents.navigationHistory.canGoBack()) {
+        win.webContents.navigationHistory.goBack();
       }
     }
   });
@@ -493,7 +606,7 @@ module.exports = function init(child) {
       child.sendMessage({ type: '[window-go-forward]', data: data });
     } else if (data.windowID) {
       let win = child.electron.BrowserWindow.fromId(data.windowID);
-      if (win.webContents.canGoForward()) {
+      if (win.webContents.navigationHistory.canGoForward()) {
         win.webContents.goForward();
       }
     }
@@ -559,12 +672,11 @@ module.exports = function init(child) {
     }
     child.parent.var.user_data = child.parent.var.user_data || [];
     let index = child.parent.var.user_data.findIndex((u) => u.id === data.id);
-    if (index > -1) {
+    if (index !== -1) {
       child.parent.var.user_data[index].data = data.data;
     } else {
       child.parent.var.user_data.push(data);
     }
-    delete data.__options;
     delete data.parentSetting;
     child.sendMessage({
       type: '[user_data][changed]',
@@ -584,7 +696,6 @@ module.exports = function init(child) {
     } else {
       child.parent.var.user_data_input.push(data);
     }
-    delete data.__options;
     delete data.parentSetting;
     child.sendMessage({
       type: '[user_data_input][changed]',
@@ -620,7 +731,7 @@ module.exports = function init(child) {
           if (w.customSetting.windowType == 'main' && !w.window.isDestroyed()) {
             w.window.webContents.send('[open new tab]', {
               url: 'http://127.0.0.1:60080/setting',
-              partition: 'setting',
+              partition: 'persist:setting',
               vip: true,
             });
           }
@@ -631,7 +742,7 @@ module.exports = function init(child) {
           type: '[open new tab]',
           data: {
             url: 'http://127.0.0.1:60080/setting',
-            partition: 'setting',
+            partition: 'persist:setting',
             vip: true,
           },
         });
@@ -641,12 +752,12 @@ module.exports = function init(child) {
       win.setFullScreen(!win.isFullScreen());
     } else if (data.name == '[window-go-forward]') {
       let win = child.electron.BrowserWindow.fromId(data.windowID);
-      if (win.webContents.canGoForward()) {
+      if (win.webContents.navigationHistory.canGoForward()) {
         win.webContents.goForward();
       }
     } else if (data.name == '[window-go-forward]') {
       let win = child.electron.BrowserWindow.fromId(data.windowID);
-      if (win.webContents.canGoForward()) {
+      if (win.webContents.navigationHistory.canGoForward()) {
         win.webContents.goForward();
       }
     } else if (data.name == '[save-window-as-pdf]') {
@@ -687,17 +798,6 @@ module.exports = function init(child) {
             });
           });
         });
-    } else if (data.name == 'window_clicked') {
-      child.sendMessage({
-        type: '[window-clicked]',
-        data: data,
-      });
-      if (child.addressbarWindow && !child.addressbarWindow.isDestroyed()) {
-        child.addressbarWindow.hide();
-      }
-      if (child.profilesWindow && !child.profilesWindow.isDestroyed()) {
-        child.profilesWindow.hide();
-      }
     } else if (data.name == '[download-link]') {
       child.sendMessage({
         type: '[download-link]',

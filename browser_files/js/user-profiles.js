@@ -39,7 +39,7 @@ app.controller('mainController', ($scope, $http, $interval, $timeout) => {
           url: $scope.setting.core.default_page,
           partition: se.name,
           user_name: se.display,
-          vip : true
+          vip: true,
         });
         SOCIALBROWSER.currentWindow.hide();
       }
@@ -47,30 +47,18 @@ app.controller('mainController', ($scope, $http, $interval, $timeout) => {
   };
 
   $scope.addSession = function () {
-    if ($scope.session.display.length > 0) {
-      $scope.session.name = new Date().getTime();
-      if (!$scope.session.memory) {
-        $scope.session.name = 'persist:' + $scope.session.name;
-      }
-      $scope.session.can_delete = true;
-      $scope.setting.session_list.push($scope.session);
-      $scope.saveSessions();
-    }
+    let ss = SOCIALBROWSER.addSession($scope.session.display);
+    $scope.setting.session_list.push(ss);
   };
 
   $scope.removeSession = function (_se) {
-    $scope.setting.session_list.forEach((se, i) => {
-      if (se.display === _se.display && se.name === _se.name) {
-        $scope.setting.session_list.splice(i, 1);
-      }
-    });
-    $scope.saveSetting();
+    SOCIALBROWSER.removeSession(_se);
   };
 
   $scope.loadSetting = function () {
     $scope.setting.session_list = [];
     SOCIALBROWSER.var.session_list.forEach((s) => {
-      $scope.setting.session_list.push({...s});
+      $scope.setting.session_list.push({ ...s });
     });
     $scope.setting.core = SOCIALBROWSER.var.core;
   };

@@ -58,7 +58,7 @@ module.exports = function init(parent) {
   parent.api.onGET({
     name: '/js',
     path: parent.files_dir + '/js2',
-    parser : 'js'
+    parser: 'js',
   });
   parent.api.onALL({
     name: '/txt',
@@ -81,7 +81,7 @@ module.exports = function init(parent) {
   });
 
   parent.api.onGET({
-    name: ['/iframe','/youtube-view'],
+    name: ['/iframe', '/youtube-view'],
     path: parent.files_dir + '/html/iframe-view.html',
     parser: 'html css js',
   });
@@ -117,6 +117,71 @@ module.exports = function init(parent) {
         list: arr,
       });
     });
+  });
+
+  parent.api.onPOST({ name: '/__social_browser/api/import-cookie-list', overwrite: true }, (req, res) => {
+    let response = {
+      done: true,
+      file: req.form.files.fileToUpload,
+      list: [],
+    };
+
+    if (parent.api.isFileExistsSync(response.file.filepath)) {
+      let socialFile = { fileType: 'cookieList' };
+      if (response.file.originalFilename.like('*.xls*')) {
+        let workbook = parent.api.XLSX.readFile(response.file.filepath);
+        socialFile.list = parent.api.XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+      } else if (response.file.originalFilename.like('*.social*')) {
+        socialFile = parent.api.readFileSync(response.file.filepath).toString();
+        socialFile = JSON.parse(parent.api.from123(socialFile));
+      } else if (response.file.originalFilename.like('*.json*')) {
+        socialFile.list = parent.api.fromJson(parent.api.readFileSync(response.file.filepath).toString());
+      } else {
+        let list = parent.api.readFileSync(response.file.filepath).toString();
+        list = list.split('\r\n');
+        list.forEach((data, i) => {
+          list[i] = list[i].trim();
+          if (list[i] && list[i].length > 0) {
+            let cookieLine = list[i].split(':');
+            socialFile.list.push({
+              domain: cookieLine[0],
+              cookie: cookieLine[1],
+              partition: cookieLine[2] || parent.var.core.session.name,
+            });
+          }
+        });
+      }
+
+      if (socialFile.fileType == 'cookieList') {
+        socialFile.list.forEach((c0, i) => {
+          let cookieIndex = parent.var.cookieList.findIndex((c) => c.domain == c0.domain && c.partition == c0.partition);
+          if (cookieIndex === -1) {
+            parent.var.cookieList.push(c0);
+          } else {
+            parent.var.cookieList[cookieIndex].cookie = c0.cookie;
+            if (typeof c0.lock !== 'undefined') {
+              parent.var.cookieList[cookieIndex].lock = c0.lock;
+            }
+            if (typeof c0.off !== 'undefined') {
+              parent.var.cookieList[cookieIndex].off = c0.off;
+            }
+          }
+        });
+        parent.applay('cookieList');
+      }
+      response.list = socialFile.list;
+      res.json(response);
+    }
+  });
+
+  parent.api.onGET({ name: '/__social_browser/api/export-cookie-list', overwrite: true }, (req, res) => {
+    let socialFile = parent.api.to123({ fileType: 'cookieList', list: parent.var.cookieList });
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Content-Length': socialFile.length,
+      'Content-Disposition': 'attachment; filename=' + 'cookieList.social',
+    });
+    res.end(socialFile);
   });
 
   parent.api.onPOST('api/proxy/import', (req, res) => {
@@ -204,11 +269,12 @@ module.exports = function init(parent) {
             port: doc.port,
             username: doc.username,
             password: doc.password,
-            socks5: true,
-            socks4: true,
-            http: true,
-            https: true,
-            ftp: true,
+            socks5: false,
+            socks4: false,
+            http: false,
+            https: false,
+            direct: false,
+            ftp: false,
           });
         });
         console.log('saving proxy list');
@@ -356,17 +422,15 @@ module.exports = function init(parent) {
   });
 
   parent.api.onGET('/api/var/setting/:key', (req, res) => {
-    let key = req.params.key;
-    let data = {};
-    if (key == 'cookies') {
-      data[key] = parent.cookies;
-    } else {
-      data[key] = parent.var[key];
-    }
+    let key = req.paramsRaw.key;
+    let obj = {};
+
+    obj[key] = parent.var[key];
 
     res.json({
       done: true,
-      var: data,
+      key: key,
+      var: obj,
     });
   });
 
@@ -450,111 +514,37 @@ module.exports = function init(parent) {
     parent.set_var('download_list', parent.var.download_list);
   });
 
-  let export_busy = false;
   parent.api.onGET('/api/var/export', (req, res) => {
-    if (export_busy) {
-      res.error();
-      return;
-    }
-    export_busy = true;
-    setTimeout(() => {
-      export_busy = false;
-    }, 1000 * 5);
-
-    if (!req.headers.range) {
-      parent.api.writeFileSync(parent.api.options.download_dir + '/var.json', parent.api.toJson(parent.var));
-    }
-    res.download(parent.api.options.download_dir + '/var.json');
+    let file = parent.api.to123({ fileType: 'var', var: parent.var });
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Content-Length': file.length,
+      'Content-Disposition': 'attachment; filename=' + 'setting.social',
+    });
+    res.end(file);
   });
 
   parent.api.onPOST('/api/var/import', (req, res) => {
-    let file = req.files.fileToUpload;
-
     let response = {
       done: true,
+      file: req.form.files.fileToUpload,
     };
-    response.file = {};
-    response.file.url = '/api/var/export';
-    response.file.name = file.name;
-    res.json(response);
 
-    let v = parent.api.fromJson(parent.api.readFileSync(file.path));
-    for (let k of Object.keys(v)) {
-      if (k == 'cookies') {
-        v[k].forEach((c) => {
-          let ss = parent.electron.session.fromPartition(c.name);
-          c.cookies.forEach((cookie) => {
-            cookie.url = '';
-            if (cookie.secure) {
-              cookie.url = 'https://';
-            } else {
-              cookie.url = 'http://';
-            }
-            if (cookie.domain.indexOf('.') === 0) {
-              cookie.url += cookie.domain.replace('.', '') + cookie.path;
-            } else {
-              cookie.url += cookie.domain + cookie.path;
-            }
-
-            try {
-              ss.cookies.set(cookie).then(
-                () => {
-                  // console.log('ok')
-                },
-                (error) => {
-                  //console.log(cookie)
-                  //console.error(error)
-                }
-              );
-            } catch (error) {
-              //console.log(error)
-            }
-          });
-        });
-      } else if (k == 'session_list') {
-        v[k].forEach((s1) => {
-          console.log(s1);
-          let exists = false;
-          parent.var.session_list.forEach((s2) => {
-            if (s1.name && s2.name && s1.name == s2.name) {
-              s2.display = s1.display;
-              exists = true;
-            }
-          });
-          if (!exists) {
-            parent.var.session_list.push(s1);
-          }
-        });
-        parent.set_var(k, parent.var.session_list);
-      } else if (k == 'user_data_input') {
-        v[k].forEach((u1) => {
-          let exists = false;
-          parent.var.user_data_input.forEach((u2) => {
-            if (u1.id == u2.id) {
-              exists = true;
-            }
-          });
-          if (!exists) {
-            parent.var.user_data_input.push(u1);
-          }
-        });
-        parent.set_var(k, parent.var.user_data_input);
-      } else if (k == 'user_data') {
-        v[k].forEach((u1) => {
-          let exists = false;
-          parent.var.user_data.forEach((u2) => {
-            if (u1.id == u2.id) {
-              exists = true;
-            }
-          });
-          if (!exists) {
-            parent.var.user_data.push(u1);
-          }
-        });
-        parent.set_var(k, parent.var.user_data);
-      } else {
-        parent.set_var(k, v[k]);
+    if (parent.api.isFileExistsSync(response.file.filepath)) {
+      let socialFile = { fileType: 'cookieList' };
+      if (response.file.originalFilename.like('*.social*')) {
+        socialFile = parent.api.readFileSync(response.file.filepath).toString();
+        socialFile = JSON.parse(parent.api.from123(socialFile));
       }
+
+      if (socialFile.fileType == 'var') {
+        for (const key in socialFile.var) {
+          parent.var[key] = socialFile.var[key];
+          parent.applay(key);
+        }
+      }
+
+      res.json(response);
     }
   });
 

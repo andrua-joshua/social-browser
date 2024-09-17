@@ -31,12 +31,12 @@ require('events').EventEmitter.prototype._maxListeners = 100;
 var child = {
   index: parseInt(process.argv[1].replace('--index=', '')),
   uuid: process.argv[2].replace('--uuid=', ''),
-  dir: process.argv[3].replace('--dir=', ''),
-  data_dir: process.argv[4].replace('--data_dir=', ''),
-  speedMode: Boolean(process.argv[5].replace('--speed=', '')),
+  partition: process.argv[3].replace('--partition=', ''),
+  dir: process.argv[4].replace('--dir=', ''),
+  data_dir: process.argv[5].replace('--data_dir=', ''),
+  speedMode: Boolean(process.argv[6].replace('--speed=', '')),
   electron: require('electron'),
   remoteMain: require('@electron/remote/main'),
-  fetch: require('node-fetch'),
   url: require('url'),
   path: require('path'),
   os: require('os'),
@@ -65,6 +65,23 @@ var child = {
   },
 };
 
+child.fetchAsync = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+child.fetch = function (...args) {
+  args[1] = args[1] || {};
+  args[1].agent = function (_parsedURL) {
+    if (_parsedURL.protocol == 'http:') {
+      return new child.http.Agent({
+        keepAlive: true,
+      });
+    } else {
+      return new child.https.Agent({
+        keepAlive: true,
+      });
+    }
+  };
+  return child.fetchAsync(...args);
+};
+
 child.remoteMain.initialize();
 
 child.shell = child.electron.shell;
@@ -81,11 +98,23 @@ require(child.path.join(child.dir, 'child', 'session'))(child);
 require(child.path.join(child.dir, 'child', 'plugins'))(child);
 require(child.path.join(child.dir, 'child', 'proxy_check'))(child);
 
+if (child.uuid == 'user-file') {
+  child.log('Files Working ....');
+  setInterval(() => {
+    if (child.save_var_quee.length > 0) {
+      child.save_var(child.save_var_quee.shift());
+    }
+  }, 1000 * 5);
+}
+
 child.electron.app.setAppUserModelId('Social.Browser');
 child.electron.app.clearRecentDocuments();
 
 if (child.electron.app.setUserTasks) {
   child.electron.app.setUserTasks([]);
+}
+if (child.electron.app.dock) {
+  child.electron.app.dock.hide();
 }
 
 //child.electron.app.commandLine.appendSwitch('enable-experimental-web-platform-features');
@@ -94,7 +123,7 @@ if (child.electron.app.setUserTasks) {
 // child.electron.app.commandLine.appendSwitch('disable-dev-shm-usage');
 // child.electron.app.commandLine.appendSwitch('no-sandbox');
 // child.electron.app.commandLine.appendSwitch('disable-gpu');
-child.electron.app.disableHardwareAcceleration();
+ child.electron.app.disableHardwareAcceleration();
 
 //child.electron.app.commandLine.appendSwitch('disable-web-security');
 // child.electron.app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
@@ -105,17 +134,16 @@ child.electron.app.disableHardwareAcceleration();
 child.mkdirSync(child.path.join(child.data_dir, child.uuid));
 child.electron.app.setPath('userData', child.path.join(child.data_dir, child.uuid));
 child.electron.protocol.registerSchemesAsPrivileged([
-  { scheme: 'browser', privileges: { bypassCSP: true, standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true, corsEnabled: true, stream: true } },
+  { scheme: 'child', privileges: { bypassCSP: true, standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true, corsEnabled: true, stream: true } },
 ]);
 // child.mkdirSync(child.path.join(child.data_dir, 'sessionData', 'sessionData_' + 'default'));
 // child.electron.app.setPath('userData', child.path.join(child.data_dir, 'sessionData', 'sessionData_' + 'default'));
-child.electron.app.on('ready', function () {
+child.electron.app.whenReady().then(() => {
   child.electron.globalShortcut.unregisterAll();
   child.electron.app.setAccessibilitySupportEnabled(false);
 
-  child.electron.protocol.handle('browser', (req) => {
-    url = url.replace('browser://', 'http://127.0.0.1:60080/');
-    url = `http://127.0.0.1:60080/${url}`;
+  child.electron.protocol.handle('child', (req) => {
+    let url = req.url.replace('child://', 'http://127.0.0.1:60080/').replace('/?', '?');
     return child.electron.net.fetch(url, {
       method: req.method,
       headers: req.headers,
@@ -135,9 +163,6 @@ child.electron.app.on('ready', function () {
     event.preventDefault();
     callback(list[0]);
   });
-  child.electron.app.on('crashed', (event, session) => {
-    child.electron.app.exit(0);
-  });
 
   child.electron.app.on('web-contents-created', (event, contents) => {
     child.remoteMain.enable(contents);
@@ -148,52 +173,43 @@ child.electron.app.on('ready', function () {
   });
 
   child.electron.app.on('window-all-closed', () => {
-    // if (process.platform != 'darwin') {
-    //   child.electron.app.quit();
-    // }
-    child.log('window-all-closed : ' + child.parent.options.partition);
-    // if (!child.parent.options.partition.contains('persist:')) {
-    //   child.electron.app.quit();
-    // }
+    if (child.partition.contains('persist:') && child.electron.BrowserWindow.getAllWindows().length === 0) {
+      child.log('window-all-closed :  process.exit() : ' + child.partition + ' : ' + child.index);
+      process.exit();
+    }
   });
 
   child.electron.app.on('login', (event, webContents, details, authInfo, callback) => {
+    console.log(authInfo);
     if (authInfo.isProxy) {
       event.preventDefault();
       let proxy = null;
-      child.windowList.forEach((w) => {
-        if (w.id2 == webContents.id) {
-          proxy = w.customSetting.proxy;
-        }
-      });
-      if (proxy) {
+
+      let index = child.windowList.findIndex((w) => w.id2 == webContents.id && w.customSetting && w.customSetting.proxy);
+      if (index !== -1) {
+        proxy = child.windowList[index].customSetting.proxy;
         callback(proxy.username, proxy.password);
         child.log(proxy);
         return;
       }
-      child.parent.var.session_list.forEach((s) => {
-        if (s.name == webContents.session.name) {
-          if (s.proxy && s.proxy.enabled) {
-            proxy = s.proxy;
-          }
-        }
-      });
-      if (proxy) {
+
+      let index2 = child.parent.var.session_list.findIndex((s) => s.name == webContents.session.name && s.proxy && s.proxy.enabled);
+      if (index2 !== -1) {
+        proxy = child.parent.var.session_list[index2].proxy;
         callback(proxy.username, proxy.password);
         child.log(proxy);
         return;
       }
-      child.parent.var.proxy_list.forEach((p) => {
-        if (p.ip == authInfo.host) {
-          proxy = p;
-        }
-      });
-      if (proxy) {
+
+      let index3 = child.parent.var.proxy_list.findIndex((p) => p.ip == authInfo.host);
+      if (index3 !== -1) {
+        proxy = child.parent.var.proxy_list[index3];
         callback(proxy.username, proxy.password);
         child.log(proxy);
         return;
       }
     } else {
+      //code here
     }
   });
 
@@ -218,6 +234,7 @@ child.electron.app.on('ready', function () {
       return;
     }
     child.handleWindowBoundsBusy = true;
+
     let mainWindow = child.parent.options.mainWindow;
     let screen = child.parent.options.screen;
 

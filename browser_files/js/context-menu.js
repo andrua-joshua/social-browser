@@ -27,7 +27,7 @@
       session_list: [],
       blocking: {
         javascript: {},
-        privacy: { languages: 'en', connection: {}, hide_permissions: true },
+        privacy: { languages: 'en', connection: {} },
         youtube: {},
         social: {},
         popup: { white_list: [] },
@@ -61,7 +61,7 @@
     ],
     effectiveTypeList: ['slow-2g', '2g', '3g', '4g'],
     session: {
-      privacy: { languages: 'en', connection: {}, hide_permissions: true },
+      privacy: { languages: 'en', connection: {} },
     },
     menu_list: [],
     events: [],
@@ -79,12 +79,28 @@
   };
 
   SOCIALBROWSER.electron = require('electron');
+
   SOCIALBROWSER.remote = require('@electron/remote');
   SOCIALBROWSER.require = require;
 
   SOCIALBROWSER.url = SOCIALBROWSER.require('url');
   SOCIALBROWSER.path = SOCIALBROWSER.require('path');
   SOCIALBROWSER.md5 = SOCIALBROWSER.require('md5');
+  SOCIALBROWSER.fs = SOCIALBROWSER.require('fs');
+  SOCIALBROWSER.Buffer = Buffer;
+
+  SOCIALBROWSER.eval = function (script) {
+    try {
+      let path = SOCIALBROWSER.data_dir + '\\sessionData\\' + new Date().getTime() + '_tmp.js';
+      SOCIALBROWSER.fs.writeFileSync(path, script);
+      SOCIALBROWSER.require(path);
+      setTimeout(() => {
+        SOCIALBROWSER.fs.unlinkSync(path);
+      }, 1000 * 3);
+    } catch (error) {
+      console.log(error);
+    }
+  };
 
   SOCIALBROWSER.currentWindow = SOCIALBROWSER.remote.getCurrentWindow();
   SOCIALBROWSER.webContents = SOCIALBROWSER.currentWindow.webContents;
@@ -118,17 +134,23 @@
 
   SOCIALBROWSER.selected_properties =
     'scripts_files,user_data,user_data_input,sites,preload_list,ad_list,proxy_list,proxy,core,bookmarks,session_list,userAgentList,blocking,video_quality_list,customHeaderList';
-  if (SOCIALBROWSER.href.indexOf('127.0.0.1:60080') !== -1 || SOCIALBROWSER.href.indexOf('file://') == 0 || SOCIALBROWSER.href.indexOf('browser://') == 0) {
+  if (SOCIALBROWSER.href.indexOf('http://127.0.0.1:60080') == 0 || SOCIALBROWSER.href.indexOf('file://') == 0 || SOCIALBROWSER.href.indexOf('browser://') == 0) {
     SOCIALBROWSER.selected_properties = '*';
   }
 
   SOCIALBROWSER.callSync = SOCIALBROWSER.ipcSync = function (channel, value = {}) {
     value.parentSetting = SOCIALBROWSER.customSetting;
+    if (channel == '[open new popup]' || channel == '[open new tab]') {
+      value.referrer = value.referrer || document.location.href;
+    }
     return SOCIALBROWSER.electron.ipcRenderer.sendSync(channel, value);
   };
 
   SOCIALBROWSER.invoke = SOCIALBROWSER.ipc = function (channel, value = {}) {
     value.parentSetting = SOCIALBROWSER.customSetting;
+    if (channel == '[open new popup]' || channel == '[open new tab]') {
+      value.referrer = value.referrer || document.location.href;
+    }
     return SOCIALBROWSER.electron.ipcRenderer.invoke(channel, value);
   };
   SOCIALBROWSER.on = function (name, callback) {
@@ -224,8 +246,9 @@
     SOCIALBROWSER.child_index = SOCIALBROWSER.browserData.child_index;
     SOCIALBROWSER.customSetting = SOCIALBROWSER.browserData.customSetting;
     SOCIALBROWSER.var = SOCIALBROWSER.browserData.var;
-    SOCIALBROWSER.files_dir = SOCIALBROWSER.browserData.files_dir;
     SOCIALBROWSER.dir = SOCIALBROWSER.browserData.dir;
+    SOCIALBROWSER.data_dir = SOCIALBROWSER.browserData.data_dir;
+    SOCIALBROWSER.files_dir = SOCIALBROWSER.browserData.files_dir;
     SOCIALBROWSER.injectHTML = SOCIALBROWSER.browserData.injectHTML;
     SOCIALBROWSER.injectCSS = SOCIALBROWSER.browserData.injectCSS;
     SOCIALBROWSER.parentAssignWindow = SOCIALBROWSER.browserData.parentAssignWindow;
@@ -264,6 +287,8 @@
 
   SOCIALBROWSER.init = function () {
     SOCIALBROWSER.currentWindow = SOCIALBROWSER.remote.getCurrentWindow();
+    SOCIALBROWSER.webContents = SOCIALBROWSER.currentWindow.webContents;
+
     SOCIALBROWSER.ipc('[browser][data]', {
       hostname: SOCIALBROWSER.hostname,
       url: SOCIALBROWSER.href,

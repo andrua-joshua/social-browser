@@ -72,22 +72,24 @@ video0 {
 #__alertBox {
   display: none;
   position: fixed;
-  background: #ffffff;
-  color: #000000;
+  background: #005ea9;
+  color: #ffffff;
   width: auto;
   height: auto;
   margin: 5% auto;
   text-align: center;
-  font-size: 22px;
-  left: 200px;
-  right: 200px;
-  padding: 20px;
-  border: 5px solid #2196f3;
-  top: 200px;
+  font-size: 26px;
+  font-weight: bold;
+  left: 20%;
+  right: 20%;
+  padding: 30px;
+  border: 8px solid #15719b;
+  border-radius: 0;
+  top: 0;
   z-index: 9999999;
   word-wrap: break-word;
   word-break: break-all;
-  
+  box-shadow: 1px 1px 8px 8px #003762;
 }
 
 #__targetUrl {
@@ -248,7 +250,6 @@ video0 {
     font-size: 12px;
     left: 0px;
     right: 0px;
-    padding: 5px;
     top: 50px;
   }
 }

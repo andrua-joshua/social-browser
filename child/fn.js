@@ -54,6 +54,28 @@ module.exports = function (child) {
     };
   }
 
+  child.openExternal = function (link) {
+    child.shell.openExternal(link);
+  };
+  child.exec = function (cmd, callback) {
+    callback =
+      callback ||
+      function (d) {
+        console.log(d);
+      };
+    let exec = child.child_process.exec;
+    return exec(cmd, function (error, stdout, stderr) {
+      if (error) {
+        callback(error);
+      }
+      if (stdout) {
+        callback(stdout);
+      }
+      if (stderr) {
+        callback(stderr);
+      }
+    });
+  };
   child.mkdirSync = function (dirname) {
     try {
       if (child.fs.existsSync(dirname)) {
@@ -121,6 +143,7 @@ module.exports = function (child) {
       }
     });
   };
+
   child.set_var = function (name, currentContent, ignore) {
     try {
       child.parent.var[name] = currentContent;
@@ -131,7 +154,7 @@ module.exports = function (child) {
   };
   child.save_var_quee = [];
   child.save_var = function (name) {
-    if (child.save_var_quee.includes(name)) {
+    if (!name || name.indexOf('$') !== -1 || child.save_var_quee.includes(name)) {
       return;
     }
     try {
@@ -243,8 +266,8 @@ module.exports = function (child) {
     setting.name = '[update-tab-properties]';
     setting.windowID = win.id;
     setting.childProcessID = child.id;
-    setting.forward = win.webContents.canGoForward();
-    setting.back = win.webContents.canGoBack();
+    setting.forward = win.webContents.navigationHistory.canGoForward();
+    setting.back = win.webContents.navigationHistory.canGoBack();
     setting.webaudio = !win.webContents.audioMuted;
     setting.url = win.getURL();
 
@@ -256,10 +279,28 @@ module.exports = function (child) {
   };
 
   child.isAllowURL = function (url) {
+    if (child.parent.var.blocking.white_list?.some((item) => url.like(item.url))) {
+      return true;
+    }
+
     let allow = true;
+
     if (child.parent.var.blocking.core.block_ads) {
       allow = !child.parent.var.ad_list.some((ad) => url.like(ad.url));
     }
+
+    if (allow && child.parent.var.blocking.core.block_ads_servers) {
+      allow = !child.adHostList.includes(child.url.parse(url).hostname);
+    }
+
+    if (allow) {
+      allow = !child.parent.var.blocking.black_list.some((item) => url.like(item.url));
+    }
+
+    if (allow && child.parent.var.blocking.allow_safty_mode) {
+      allow = !child.parent.var.blocking.un_safe_list.some((item) => url.like(item.url));
+    }
+
     return allow;
   };
 };

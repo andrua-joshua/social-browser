@@ -13,7 +13,7 @@ SOCIALBROWSER.youtubeMaster = {
   qualityText: '*Quality*|*جود*',
   qualityButtonsSelector: '.ytp-panel.ytp-quality-menu .ytp-menuitem',
   skip_buttons: '.ytp-ad-skip-button,.ytp-ad-overlay-close-container',
-  adSelectors: 'ytd-promoted-sparkles-web-renderer,#player-ads,.video-ads,.video-masthead-iframe,#masthead-ad,.ytd-video-masthead-ad-v3-renderer',
+  adSelectors: '#player-ads',
   adsProgressSelector: '.ad-interrupting .ytp-play-progress.ytp-swatch-background-color',
   videosSelector: 'YTD-GRID-VIDEO-RENDERER,YTD-RICH-ITEM-RENDERER,YTD-VIDEO-RENDERER,YTD-COMPACT-VIDEO-RENDERER,YTD-PLAYLIST-RENDERER',
   locationchanged: function () {
@@ -67,13 +67,15 @@ SOCIALBROWSER.youtubeMaster = {
     return SOCIALBROWSER.youtubeMaster.player;
   },
   resetQuality: function () {
-    SOCIALBROWSER.log(' resetQuality : ' + document.location.href);
+    
     if (
       SOCIALBROWSER.youtubeMaster.allowChangeQualtiy &&
+      SOCIALBROWSER.var.blocking.youtube.allow_change_quality &&
       SOCIALBROWSER.var.blocking.youtube.quality &&
       SOCIALBROWSER.var.blocking.youtube.quality.value &&
       SOCIALBROWSER.youtubeMaster.player.getPlaybackQuality() != SOCIALBROWSER.var.blocking.youtube.quality.name
     ) {
+      SOCIALBROWSER.log(' resetQuality : ' + document.location.href);
       if (SOCIALBROWSER.click(SOCIALBROWSER.youtubeMaster.settingSelector, false)) {
         let subSettingButtons = document.querySelectorAll(SOCIALBROWSER.youtubeMaster.qualitySelector);
         subSettingButtons.forEach((subSettingButton, i) => {

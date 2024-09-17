@@ -1,4 +1,7 @@
-console.log('100010001000100010001000');
+if (window.SOCIALBROWSER) {
+  SOCIALBROWSER.showInfo('Blocked : ##query.x-url##');
+}
+window.canRunAds = true;
 
 window.grecaptcha = window.grecaptcha || {
   render: function (name, options) {
@@ -14,9 +17,9 @@ window.grecaptcha = window.grecaptcha || {
   reset: function () {},
 };
 
-let onload = '##query.onload##';
-if (window[onload]) {
-  window[onload]();
+window.queryOnLoad = '##query.onload##';
+if (window[window.queryOnLoad]) {
+  window[window.queryOnLoad]();
 }
 
 if (false) {

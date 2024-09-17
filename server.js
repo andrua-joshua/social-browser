@@ -43,7 +43,8 @@
     speedMode: false,
     electron: require('electron'),
     remoteMain: require('@electron/remote/main'),
-    fetch: require('node-fetch'),
+    http: require('http'),
+    https: require('https'),
     path: require('path'),
     os: require('os'),
     url: require('url'),
@@ -56,7 +57,7 @@
     windowList: [],
     files: [],
     var: {
-      core: { id: ''},
+      core: { id: '' },
       overwrite: {
         urls: [],
       },
@@ -78,7 +79,24 @@
     },
     startTime: new Date().getTime(),
   };
-
+  browser.fetchAsync = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+    browser.fetch =
+      function (...args) {
+        args[1] = args[1] || {};
+        args[1].agent = function (_parsedURL) {
+          if (_parsedURL.protocol == 'http:') {
+            return new browser.http.Agent({
+              keepAlive: true,
+            });
+          } else {
+            return new browser.https.Agent({
+              keepAlive: true,
+            });
+          }
+        };
+        return browser.fetchAsync(...args);
+      };
+      
   const is_first_app = browser.electron.app.requestSingleInstanceLock();
   if (!is_first_app) {
     let f = process.argv[process.argv.length - 1]; // LAST arg is file to run
@@ -97,7 +115,10 @@
   }
   browser.files_dir = browser.dir + '/browser_files';
   if (process.cwd().indexOf('-portal') !== -1) {
-    browser.isPortal = true;
+    browser.isPortalMode = true;
+    browser.data_dir = browser.path.join(process.cwd(), 'social-data');
+  } else if (process.cwd().indexOf('-accounts') !== -1 || process.cwd().indexOf('-users') !== -1) {
+    browser.isAccountsMode = true;
     browser.data_dir = browser.path.join(process.cwd(), 'social-data');
   } else {
     browser.data_dir = browser.path.join(browser.os.homedir(), 'social-data');
@@ -121,6 +142,10 @@
     browser.electron.app.setUserTasks([]);
   }
 
+  if (browser.electron.app.dock) {
+    browser.electron.app.dock.hide();
+  }
+
   browser.electron.app.clearRecentDocuments();
   // browser.electron.app.commandLine.appendSwitch('no-sandbox');
   // browser.electron.app.commandLine.appendSwitch('in-process-gpu');
@@ -139,13 +164,12 @@
   });
 
   /* App Ready */
-  browser.electron.app.on('ready', function () {
+  browser.electron.app.whenReady().then(() => {
     browser.webContent = browser.electron.webContents.create({
       contextIsolation: false,
     });
     browser.electron.protocol.handle('browser', (req) => {
-      let url = req.url.substr(10);
-      url = url.replace('browser://', 'http://127.0.0.1:60080/');
+      let url = req.url.replace('browser://', 'http://127.0.0.1:60080/').replace('/?', '?');
       return browser.electron.net.fetch(url, {
         method: req.method,
         headers: req.headers,
@@ -166,7 +190,7 @@
     // }
     // console.log(browser.webContentList.length);
     browser.electron.app.setAccessibilitySupportEnabled(true);
-    if (!browser.isPortal && !browser.var.core.id.like('*developer*')) {
+    if (!browser.var.core.id.like('*developer*')) {
       browser.electron.app.setLoginItemSettings({
         openAtLogin: true,
         args: ['--auto-startup'],
@@ -251,6 +275,12 @@
       partition: 'persist:social',
     });
   } else {
+    // browser.createChildProcess({
+    //   url: 'https://www.google.com',
+    //   windowType: 'popup',
+    //   partition: 'google',
+    //   show: true,
+    // });
     browser.createChildProcess({
       url: 'http://127.0.0.1:60080/home',
       windowType: 'main',
@@ -258,8 +288,10 @@
     });
   }
 
-  browser.createChildProcess({
-    windowType: 'files',
-    partition: 'persist:file',
-  });
+  setTimeout(() => {
+    browser.createChildProcess({
+      windowType: 'files',
+      partition: 'persist:file',
+    });
+  }, 1000 * 3);
 })();

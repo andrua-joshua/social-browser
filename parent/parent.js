@@ -10,6 +10,27 @@ module.exports = function init(parent) {
   parent.extensionList = [];
   parent.information = {};
   parent.cookies = {};
+  parent.freeUsersCount = 100;
+  parent.eval = require('eval');
+
+  parent.isAllowURL = function (url) {
+    if (parent.var.blocking.white_list.some((item) => url.like(item.url))) {
+      return true;
+    }
+    let allow = true;
+    if (parent.var.blocking.core.block_ads) {
+      allow = !parent.var.ad_list.some((ad) => url.like(ad.url));
+    }
+
+    if (allow) {
+      allow = !parent.var.blocking.black_list.some((item) => url.like(item.url));
+    }
+
+    if (allow && parent.var.blocking.allow_safty_mode) {
+      allow = !parent.var.blocking.un_safe_list.some((item) => url.like(item.url));
+    }
+    return allow;
+  };
 
   parent.importExtension = function () {
     parent.electron.dialog
@@ -135,6 +156,7 @@ module.exports = function init(parent) {
   parent.applay = function (name) {
     parent.save_var(name);
   };
+
   require(parent.path.join(parent.dir, 'parent', 'fn.js'))(parent);
   require(parent.path.join(parent.dir, 'parent', 'file.js'))(parent);
   require(parent.path.join(parent.dir, 'parent', 'download.js'))(parent);
@@ -144,6 +166,10 @@ module.exports = function init(parent) {
   require(parent.path.join(parent.dir, 'parent', 'ipc.js'))(parent);
   require(parent.path.join(parent.dir, 'parent', 'ws.js'))(parent);
   require(parent.path.join(parent.dir, 'parent', 'chat.js'))(parent);
+ // require(parent.path.join(parent.dir, 'parent', 'test.js'))(parent);
+
+  parent.httpTrustedOnline();
+
   // if (parent.speedMode) {
   //     require(parent.path.join(parent.dir, 'child', 'windows.js'))(parent);
   //     require(parent.path.join(parent.dir, 'child', 'ipc.js'))(parent);
@@ -152,18 +178,6 @@ module.exports = function init(parent) {
   //  require(parent.path.join(parent.dir, 'spiders', 'page-urls.js'))(parent);
   //  require(parent.path.join(parent.dir, 'spiders', 'page-info.js'))(parent);
   //  require(parent.path.join(parent.dir, 'spiders', 'page-content.js'))(parent);
-
-  if (process.platform == 'win32') {
-    parent.exec('wmic CPU get ProcessorId', (d) => {
-      parent.information['ProcessorId'] = d.replace(/\n|\r|\t|\s+|ProcessorId/g, '');
-    });
-    parent.exec('wmic DISKDRIVE get SerialNumber', (d) => {
-      parent.information['DISKDRIVE'] = d.replace(/\n|\r|\t|\s+|SerialNumber/g, '');
-    });
-    parent.exec('wmic BIOS get SerialNumber', (d) => {
-      parent.information['BIOS'] = d.replace(/\n|\r|\t|\s+|SerialNumber/g, '');
-    });
-  }
 
   parent.createChildWindow = function (options) {
     parent.createNewWindow(options);
@@ -175,29 +189,30 @@ module.exports = function init(parent) {
     options.user_name = options.user_name || options.partition;
 
     options.uuid = !options.partition.contains('persist:') ? 'x-ghost' : 'user-' + options.partition.replace('persist:', '');
+    const uuid = options.uuid;
 
-    let index = parent.clientList.findIndex((cl) => cl && cl.uuid === options.uuid);
+    let index = parent.clientList.findIndex((cl) => cl && cl.uuid === uuid);
     if (index !== -1 && parent.clientList[index] && parent.clientList[index].ws) {
       parent.clientList[index].windowType = options.windowType || 'popup';
       parent.clientList[index].option_list.push(options);
       parent.clientList[index].options = options;
       parent.clientList[index].ws.send({ type: 're-connected' });
     } else {
+      index = parent.clientList.length;
       parent.clientList.push({
         source: 'child',
         partition: options.partition,
-        uuid: options.uuid,
+        uuid: uuid,
         option_list: [options],
         windowType: options.windowType || 'popup',
         index: index,
         options: options,
       });
 
-      index = parent.clientList.length - 1;
-
       let child = parent.run([
         '--index=' + index,
-        '--uuid=' + options.uuid,
+        '--uuid=' + uuid,
+        '--partition=' + options.partition,
         '--dir=' + parent.dir,
         '--data_dir=' + parent.data_dir,
         '--speed=' + (parent.speedMode || ''),
@@ -209,60 +224,65 @@ module.exports = function init(parent) {
       parent.clientList[index].child = child;
 
       child.stdout.on('data', function (data) {
-        parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] Log \n  ${data}`);
+        parent.log('\n-------------------------------- [stdout]');
+        parent.log(` [ child:${child.pid} ${uuid} / ${parent.clientList.length} ] Log \n  ${data}`);
+        parent.log('\n\n');
       });
 
       child.stderr.on('data', (data) => {
-        parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] Error \n    ${data}`);
+        parent.log('\n-------------------------------- [stderr]');
+        parent.log(` [ child:${child.pid} ${uuid} / ${parent.clientList.length} ] Error \n    ${data}`);
+        parent.log('\n\n');
       });
 
+      child.on('error', (err) => {
+        parent.log('\n-------------------------------- [error]');
+        parent.log(` [ child ${uuid} / ${parent.clientList.length} ] Error \n ${err}`);
+        parent.log('\n\n');
+      });
+      child.on('disconnect', (err) => {
+        parent.log(` [ child ${uuid} / ${parent.clientList.length} ] disconnect`, err);
+      });
+      child.on('spawn', (err) => {
+        // parent.log(` [ child ${uuid} / ${parent.clientList.length} ] spawn`, err);
+      });
+      child.on('message', (msg) => {
+        // parent.log(` [ child ${uuid} / ${parent.clientList.length} ] message`, msg);
+      });
       child.on('close', (code, signal) => {
-        parent.log(`\n [ child ${options.uuid} / ${parent.clientList.length} ] close with code ( ${code} ) and signal ( ${signal} ) \n`);
+        parent.log(`\n [ Exit :: child:${child.pid} ${uuid} / ${parent.clientList.length} ] close with code ( ${code} ) and signal ( ${signal} ) \n`);
+        
+        let index2 = parent.clientList.findIndex((c) => c.uuid == uuid);
+        if (index2 !== -1) {
+          if (parent.clientList[index2].option_list.some((op) => op.windowType == 'main') && code == 2147483651 && !signal) {
+            console.log('\n\n ................. Main Window Close UpNormal ..............\n\n');
 
-        let index = parent.clientList.findIndex((c) => c.uuid == options.uuid);
-        if (parent.clientList[index].option_list.some((op) => op.windowType == 'main') && code == 2147483651 && !signal) {
-          console.log('\n\n ................. Main Window Close UpNormal ..............\n\n');
+            parent.createChildProcess(parent.clientList[index2].option_list.find(op.windowType == 'main'));
 
-          parent.createChildProcess(parent.clientList[index].option_list.find(op.windowType == 'main'));
-
-          parent.clientList.forEach((client, i) => {
-            if (client.option_list.some(op.windowType == 'view')) {
-              client.ws.send({
-                type: '[set-window]',
-              });
-            }
-          });
-        }
-
-        parent.clientList[index].option_list.forEach((op) => {
-          if (op.tabID) {
             parent.clientList.forEach((client, i) => {
-              if (client.windowType === 'main') {
+              if (client.option_list.some(op.windowType == 'view')) {
                 client.ws.send({
-                  type: '[remove-tab]',
-                  tabID: op.tabID,
+                  type: '[set-window]',
                 });
               }
             });
           }
-        });
 
-        if (parent.clientList[index]) {
-          parent.clientList.splice(index, 1);
+          parent.clientList[index2].option_list.forEach((op) => {
+            if (op.tabID) {
+              parent.clientList.forEach((client, i) => {
+                if (client.windowType === 'main') {
+                  client.ws.send({
+                    type: '[remove-tab]',
+                    tabID: op.tabID,
+                  });
+                }
+              });
+            }
+          });
+
+          parent.clientList.splice(index2, 1);
         }
-      });
-
-      child.on('error', (err) => {
-        parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] Error \n ${err}`);
-      });
-      child.on('disconnect', (err) => {
-        //  parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] disconnect`, err);
-      });
-      child.on('spawn', (err) => {
-        // parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] spawn`, err);
-      });
-      child.on('message', (msg) => {
-        // parent.log(` [ child ${options.uuid} / ${parent.clientList.length} ] message`, msg);
       });
     }
   };

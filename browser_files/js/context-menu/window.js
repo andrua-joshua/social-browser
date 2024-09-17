@@ -1,4 +1,17 @@
-window.open = function (url, _name, _specs, _replace_in_history) {
+window.open0 = window.open;
+window.open = function (...args /*url, target, windowFeatures*/) {
+  let url = args[0];
+  let target = args[1];
+  let windowFeaturesString = args[2]; /*"left=100,top=100,width=320,height=320"*/
+  let windowFeatures = {};
+  if (windowFeaturesString) {
+    windowFeaturesString = windowFeaturesString.split(',');
+    windowFeaturesString.forEach((obj) => {
+      obj = obj.split('=');
+      windowFeatures[obj[0]] = obj[1];
+    });
+  }
+
   let child_window = {
     closed: false,
     opener: window,
@@ -38,86 +51,83 @@ window.open = function (url, _name, _specs, _replace_in_history) {
     self: this,
   };
 
-  if (url.like('javascript:*|*.svg|*.png|*.ico|*.gif')) {
-    console.log('unSupported URL : ' + url);
-    return child_window;
-  }
-  if (typeof url !== 'string') {
-    return child_window;
-  }
-
-  if (url == 'about:blank') {
-    return child_window;
+  if (!url || url.like('javascript:*|about:blank|*accounts.*|*login*') || SOCIALBROWSER.customSetting.allowCorePopup) {
+    let opener = window.open0(...args);
+    return opener || child_window;
   }
 
   url = SOCIALBROWSER.handle_url(url);
+  child_window.url = url;
 
-  if (SOCIALBROWSER.copyPopupURL) {
-    SOCIALBROWSER.copy(url);
-  }
+  let allow = false;
 
-  if (SOCIALBROWSER.blockPopup || !SOCIALBROWSER.customSetting.allowNewWindows) {
-    SOCIALBROWSER.log('block Popup : ' + url);
-    return child_window;
-  }
-
-  if (SOCIALBROWSER.customSetting.allowSelfWindow) {
-    document.location.href = url;
-    return child_window;
-  }
-
-  if (url.like('https://www.youtube.com/watch*')) {
-    SOCIALBROWSER.ipc('[open new popup]', {
-      windowType: 'youtube',
-      url: 'https://www.youtube.com/embed/' + url.split('=')[1].split('&')[0],
-      partition: SOCIALBROWSER.partition,
-      referrer: document.location.href,
-      show: true,
-    });
-
-    return child_window;
-  }
-
-  if (!SOCIALBROWSER.var.core.javaScriptOFF) {
-    if (!SOCIALBROWSER.isAllowURL(url)) {
-      SOCIALBROWSER.log('Not Allow URL : ' + url);
+  if (SOCIALBROWSER.allowPopup || SOCIALBROWSER.customSetting.allowPopup) {
+    allow = true;
+  } else {
+    if (SOCIALBROWSER.customSetting.blockPopup || !SOCIALBROWSER.customSetting.allowNewWindows) {
+      SOCIALBROWSER.log('block Popup : ' + url);
       return child_window;
     }
-    let allow = !SOCIALBROWSER.var.blocking.popup.black_list.some((d) => url.like(d.url));
 
-    if (!allow) {
-      SOCIALBROWSER.log('black list : ' + url);
+    if (SOCIALBROWSER.customSetting.allowSelfWindow) {
+      document.location.href = url;
       return child_window;
     }
-    allow = false;
-    let toUrlParser = SOCIALBROWSER.url.parse(url);
-    let fromUrlParser = SOCIALBROWSER.url.parse(this.document.location.href);
 
-    if ((toUrlParser.host.contains(fromUrlParser.host) || fromUrlParser.host.contains(toUrlParser.host)) && SOCIALBROWSER.var.blocking.popup.allow_internal) {
-      allow = true;
-    } else if (toUrlParser.host !== fromUrlParser.host && SOCIALBROWSER.var.blocking.popup.allow_external) {
-      allow = true;
-    } else {
-      allow = SOCIALBROWSER.var.blocking.popup.white_list.some((d) => toUrlParser.host.like(d.url) || fromUrlParser.host.like(d.url));
+    if (!SOCIALBROWSER.var.core.javaScriptOFF) {
+      if (!SOCIALBROWSER.isAllowURL(url)) {
+        SOCIALBROWSER.log('Not Allow URL : ' + url);
+        return child_window;
+      }
+
+      allow = !SOCIALBROWSER.var.blocking.popup.black_list.some((d) => url.like(d.url));
+
+      if (!allow) {
+        SOCIALBROWSER.log('black list : ' + url);
+        return child_window;
+      }
+
+      allow = false;
+      let toUrlParser = new URL(url);
+      let fromUrlParser = new URL(document.location.href);
+      if ((toUrlParser.host.contains(fromUrlParser.host) || fromUrlParser.host.contains(toUrlParser.host)) && SOCIALBROWSER.var.blocking.popup.allow_internal) {
+        allow = true;
+      } else if (toUrlParser.host !== fromUrlParser.host && SOCIALBROWSER.var.blocking.popup.allow_external) {
+        allow = true;
+      } else {
+        allow = SOCIALBROWSER.var.blocking.popup.white_list.some((d) => toUrlParser.host.like(d.url) || fromUrlParser.host.like(d.url));
+      }
     }
 
     if (!allow) {
-      SOCIALBROWSER.log('Not Allow : ' + url);
+      SOCIALBROWSER.log('Not Allow popup window : ' + url);
       return child_window;
     }
   }
 
-  _specs = _specs || {};
-
+  let showPopup = false;
+  let skipTaskbar = true;
+  let center = false;
+  if (SOCIALBROWSER.customSetting.hide) {
+    showPopup = false;
+    skipTaskbar = true;
+  } else if (SOCIALBROWSER.customSetting.windowType === 'view') {
+    showPopup = true;
+    center = true;
+    skipTaskbar = false;
+  } else if (SOCIALBROWSER.customSetting.windowType.like('*popup*')) {
+    showPopup = SOCIALBROWSER.customSetting.show;
+  }
   let win = SOCIALBROWSER.openWindow({
-    width: _specs.width,
-    height: _specs.height,
     url: url,
-    show: true,
     windowType: 'client-popup',
-    frame: true,
+    show: showPopup,
+    center: center,
+    skipTaskbar: skipTaskbar,
+    width: windowFeatures.width || SOCIALBROWSER.customSetting.width,
+    height: windowFeatures.height || SOCIALBROWSER.customSetting.height,
     resizable: true,
-    skipTaskbar: false,
+    frame: true,
   });
 
   child_window.postMessage = function (...args) {
@@ -200,7 +210,8 @@ window.addEventListener('message', (e) => {
 });
 
 if (SOCIALBROWSER.parentAssignWindow) {
-  window.opener = {
+  window.opener = window.opener || {
+    closed: false,
     postMessage: (...args) => {
       SOCIALBROWSER.ipc('window.message', {
         windowID: SOCIALBROWSER.parentAssignWindow.parentWindowID,

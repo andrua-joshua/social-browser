@@ -18,11 +18,12 @@ setTimeout(() => {
 
 app.controller('mainController', ($scope, $http, $timeout) => {
   $scope.$proxy = {
-    socks5: true,
-    socks4: true,
-    ftp: true,
-    http: true,
-    https: true,
+    socks5: false,
+    socks4: false,
+    ftp: false,
+    http: false,
+    https: false,
+    direct : false
   };
   $scope.busy = true;
   $scope.setting_busy = true;
@@ -403,15 +404,9 @@ app.controller('mainController', ($scope, $http, $timeout) => {
   };
 
   $scope.addSession = function () {
-    if ($scope.session.display.length > 0) {
-      $scope.session.name = $scope.session.name || new Date().getTime();
-      if (!$scope.session.memory) {
-        $scope.session.name = 'persist:' + $scope.session.name;
-      }
-      $scope.session.can_delete = true;
-      $scope.setting.session_list.push($scope.session);
-      $scope.session = {};
-    }
+    let ss = SOCIALBROWSER.addSession($scope.session.display);
+    $scope.setting.session_list.push(ss);
+    $scope.session = {};
   };
 
   $scope.removeSession = function (_se) {
@@ -438,6 +433,7 @@ app.controller('mainController', ($scope, $http, $timeout) => {
           name: 'persist:' + new Date().getTime() + '_' + code,
           display: $scope.session.display.replace('{count}', code),
           can_delete: true,
+          time: new Date().getTime(),
         });
       }
       $scope.session = {};
@@ -462,11 +458,12 @@ app.controller('mainController', ($scope, $http, $timeout) => {
   $scope.addProxy = function () {
     $scope.setting.proxy_list.push({ ...$scope.$proxy });
     $scope.$proxy = {
-      socks5: true,
-      socks4: true,
-      ftp: true,
-      http: true,
-      https: true,
+      socks5: false,
+      socks4: false,
+      ftp: false,
+      http: false,
+      https: false,
+      direct : false
     };
   };
 
@@ -494,6 +491,7 @@ app.controller('mainController', ($scope, $http, $timeout) => {
         currentSession.proxy.ftp = currentSession.selected_proxy.ftp;
         currentSession.proxy.http = currentSession.selected_proxy.http;
         currentSession.proxy.https = currentSession.selected_proxy.https;
+        currentSession.proxy.direct = currentSession.selected_proxy.direct;
         currentSession.proxy.ignore = currentSession.selected_proxy.ignore;
       } else if ($scope.setting.proxy && $scope.setting.proxy.selected_proxy) {
         $scope.setting.proxy.name = $scope.setting.proxy.selected_proxy.name;
@@ -507,6 +505,7 @@ app.controller('mainController', ($scope, $http, $timeout) => {
         $scope.setting.proxy.ftp = $scope.setting.proxy.selected_proxy.ftp;
         $scope.setting.proxy.http = $scope.setting.proxy.selected_proxy.http;
         $scope.setting.proxy.https = $scope.setting.proxy.selected_proxy.https;
+        $scope.setting.proxy.direct = $scope.setting.proxy.selected_proxy.direct;
         $scope.setting.proxy.ignore = $scope.setting.proxy.selected_proxy.ignore;
       }
     }, 0);
@@ -674,6 +673,17 @@ app.controller('mainController', ($scope, $http, $timeout) => {
   $scope.saveSessions = function () {
     site.hideModal('#sessionsModal');
     $scope.saveSetting();
+  };
+
+  $scope.activated = function () {
+    $scope.busy = true;
+    SOCIALBROWSER.ipc('[update-browser-var]', {
+      name: 'core',
+      data: $scope.setting['core'],
+    });
+    $timeout(() => {
+      window.location.reload();
+    }, 1000 * 5);
   };
 
   $scope.saveSetting = function (close) {
@@ -934,8 +944,12 @@ app.controller('mainController', ($scope, $http, $timeout) => {
       allowMenu: true,
     });
   };
+
   $scope.copy = function (text) {
     SOCIALBROWSER.copy(text);
+  };
+  $scope.paste = function () {
+    SOCIALBROWSER.paste();
   };
   $scope.showPassword = function (site) {
     if ((elem = document.querySelector('#pass_' + site.id + ' input[type=password]'))) {
